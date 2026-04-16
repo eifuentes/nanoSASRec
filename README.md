@@ -1,35 +1,31 @@
 # nanoSASRec
 
-The simplest, most readable implementation of sequential recommendation models, from SASRec to HSTU.
+The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline — and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every file is self-contained, every design decision cites a paper, and every step has a concrete reproduction target.
 
 ## Why this exists
 
-Most recommender systems — collaborative filtering, two-tower models, deep learning rankers — learn what a user *likes*. They struggle with what a user *needs right now*. On Amazon, someone who just bought a DSLR camera doesn't need more camera recommendations — they need a lens, then a memory card, then a camera bag. On MovieLens, a user who just watched all three Lord of the Rings films back-to-back is on a fantasy binge, not looking for the romantic comedies their five-year profile suggests. The sequence encodes intent progression that a static user profile can't capture.
+Most recommender systems — collaborative filtering, two-tower models, deep learning recommender models (DLRM) — learn what a user *likes*. They struggle with what a user *needs right now*. On Amazon, someone who just bought a DSLR camera doesn't need more camera recommendations — they need a lens, then a memory card, then a camera bag. With movies, a user who just watched all three Lord of the Rings films back-to-back is on a fantasy binge, not looking for the romantic comedies their five-year profile suggests. The sequence encodes intent progression that a static user profile can't capture.
 
-This matters because real user behavior is *streaky* — people shop in projects, watch in moods, and listen in phases. Sequential models pick up on these short-term patterns while still remembering long-term preferences, which is why they dominate production recommendation at companies like Meta, YouTube, Kuaishou, and Meituan across e-commerce, video, food delivery, and live content.
+This matters because real user behavior is *streaky* — people shop in projects, watch in moods, and listen in phases. Sequential models pick up on these short-term patterns while still remembering long-term preferences, which is why they dominate production recommendation at companies like Meta, YouTube, Kuaishou, and Meituan.
 
-Sequential recommendation models the *order* of a user's actions. RNNs (GRU4Rec, 2016) did it first, but Transformers turned out to be better at it. **SASRec** (Kang & McAuley, 2018) was the first to apply a causal Transformer decoder to item sequences, and it became the dominant baseline for the next five years.
+Sequential recommendation models the *order* of a user's actions. RNNs (GRU4Rec, 2016) did it first, but Transformers turned out to be better at it. **SASRec** (Kang & McAuley, 2018) was the first to apply a causal Transformer decoder to item sequences.
 
-The problem: SASRec topped out at 2 attention layers and couldn't scale deeper. Its loss function produced overconfident predictions. And for years, everyone thought a rival architecture (BERT4Rec) was better — until two 2023 papers independently proved the issue was the loss function, not the architecture.
-
-**HSTU** (Meta, 2024) fixed the scaling problem by replacing softmax attention with SiLU, adding relative attention bias, and introducing pointwise gating — enabling power-law scaling to trillion parameters. It now powers recommendations at Meta, Kuaishou, Meituan, and others. Google/YouTube took a different path with Semantic IDs (PLUM), but the destination is the same: Transformers are the backbone of modern production recommendation. This is the GPT moment for the field.
-
-This repo builds HSTU from scratch, one component at a time, starting from vanilla SASRec. Each step fixes one problem, shows the metric improvement, and cites the paper that figured it out. If you know LLMs: SASRec is the original Transformer, HSTU is GPT-2 — same family, but with the refinements that unlocked scaling. By v8 you'll understand causal self-attention, loss function design for large catalogs, scaling laws for recommendation, and the specific architectural decisions that separate a research baseline from a production system.
+This project builds up SASRec from its original framing all the way to its HSTU variant, one component at a time. Each step fixes one problem, shows the metric improvement, and cites the paper that figured it out. To use LLMs as an analogy: if SASRec is the original Transformer, HSTU is GPT-2 — same model lineage, but with the refinements that unlocked scaling. By v8 you'll understand causal self-attention, loss function design for large catalogs, scaling laws for recommendation, and the specific architectural decisions that separate a research baseline from a production system.
 
 ## Steps
 
-```
-train_v1.py  — vanilla SASRec + BCE                          (ML-1M)
-train_v2.py  — switch to sampled softmax                     (ML-1M, Beauty)
-train_v3.py  — add gBCE loss + calibration plot              (ML-1M, Beauty)
-train_v4.py  — implementation refinements, decompose modules (ML-1M)
-train_v5.py  — scale to ML-20M, watch depth collapse         (ML-20M)
-train_v6.py  — fix residual pattern                          (ML-20M)
-train_v7.py  — add relative attention bias                   (ML-20M)
-train_v8.py  — SiLU + pointwise gating → HSTU               (ML-20M)
-```
+| Step | Change | Dataset |
+|------|--------|---------|
+| `train_v1.py` | vanilla SASRec + BCE | ML-1M |
+| `train_v2.py` | switch to sampled softmax | ML-1M, Beauty |
+| `train_v3.py` | add gBCE loss + calibration plot | ML-1M, Beauty |
+| `train_v4.py` | implementation refinements, decompose modules | ML-1M |
+| `train_v5.py` | scale to ML-20M, watch depth collapse | ML-20M |
+| `train_v6.py` | fix residual pattern | ML-20M |
+| `train_v7.py` | add relative attention bias | ML-20M |
+| `train_v8.py` | SiLU + pointwise gating → HSTU | ML-20M |
 
 Each file is runnable independently. Read them in order for the full progression, or jump to any step.
 

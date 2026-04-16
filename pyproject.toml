@@ -1,0 +1,9 @@
+[project]
+name = "nanosasrec"
+version = "0.1.0"
+description = "From SASRec to HSTU, one file at a time"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.7",
+    "numpy>=1.24",
+]

@@ -5,8 +5,11 @@ import argparse
 import json
 from typing import Dict, Tuple, List
 import random
+import math
 
 import numpy as np
+import torch
+import torch.nn as nn
 
 DATASETS = ("ml-1m", "ml-20m", "beauty")
 
@@ -67,6 +70,64 @@ def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: in
         target_neg_seq_batch[i, :] = random_neg_seq
     return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch
 
+
+class SASRec(nn.Module):
+
+    def __init__(self, num_items:int, max_seq_len:int, dropout_rate:float, embedding_dim:int, num_heads: int = 1, num_blocks: int = 2):
+
+        super().__init__()
+
+        # Setup item and position embeddings tables to convert integers to dense vectors
+        self.item_embedding_table = nn.Embedding(num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0)
+        self.pos_embeding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
+
+        self.norm = nn.LayerNorm(normalized_shape=embedding_dim)
+        self.dropout = nn.Dropout(p=dropout_rate)
+
+        self.query_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+        self.key_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+        self.value_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+        
+        # blocks = []
+        # for i in range(num_blocks):
+        #     blocks.append(nn.LayerNorm(normalized_shape=(seq_len, embedding_dim)))
+        #     blocks.append(nn.Dropout(p=dropout_rate))
+        # self.attn_blocks = nn.ModuleList(blocks)
+    
+    def self_attention(self, x):
+        """Scaled Dot Product Self-Attention.
+
+        Args:
+            x (torch.Tensor): input tensor of size(batch_size, max_seq_len, embedding_dim)
+
+        Returns:
+            torch.Tensor: attended input tensor of size(batch_size, max_seq_len, embedding_dim)
+        """
+        # input tensor x is of shape (batch_size, max_seq_len, embedding_dim)
+        _, max_seq_len, embedding_dim = x.size()
+        
+        # project query, key, value and calculate attention scores
+        # query linear layer transforms each position into "this is what I am looking for?"
+        query = self.query_proj(x)  # (batch_size, max_seq_len, embedding_dim)
+        # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
+        key = self.key_proj(x).transpose(-2, -1)  # (batch_size, embedding_dim, max_seq_len)
+        # value linear layer transforms each position into "this is the information I pass along when attended to?"
+        value = self.value_proj(x)  # (batch_size, max_seq_len, embedding_dim)
+        # The matrix multiply aka dot product produces scores between each position and all others showing affinity
+        # large values in each signed direction mean position pairs are compatible or incompatible
+        # NOTE: sqrt to keep values not too extreme for softmax preventing saturation
+        attn_scores = (query @ key) / math.sqrt(embedding_dim)  # (batch_size, max_seq_len, max_seq_len)
+
+        # create and apply mask to protect causality aka attending to future/to the right positions
+        mask = torch.triu(torch.ones((max_seq_len, max_seq_len), device=x.device), diagonal=1).bool()
+        attn_scores = attn_scores.masked_fill(mask, float('-inf'))
+
+        # softmax converts raw attention scores to be a normalized probability distribution over all positions
+        # it normalizes across the "key" dimension so each "query" position's attention weight sums to 1
+        attn_weights = torch.softmax(attn_scores, dim=-1)  # (batch_size, max_seq_len, max_seq_len)
+
+        # Given the attention weights, does a weighted combination of each positions "value" representation
+        return attn_weights @ value  # (batch_size, max_seq_len, embedding_dim)
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v1")

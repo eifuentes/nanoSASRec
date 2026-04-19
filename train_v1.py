@@ -73,10 +73,14 @@ def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: in
 
 class SASRec(nn.Module):
 
-    def __init__(self, num_items:int, max_seq_len:int, dropout_rate:float, embedding_dim:int, num_heads: int = 1, num_blocks: int = 2):
+    def __init__(self, num_items:int, max_seq_len:int, dropout_rate:float, embedding_dim:int, num_blocks: int = 2, num_heads: int = 1):
 
         super().__init__()
 
+        # args
+        self.num_blocks = num_blocks
+        self.num_heads = num_heads
+        
         # Setup item and position embeddings tables to convert integers to dense vectors
         self.item_embedding_table = nn.Embedding(num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0)
         self.pos_embeding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
@@ -87,6 +91,7 @@ class SASRec(nn.Module):
         self.query_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
         self.key_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
         self.value_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+        self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=True)
         
         # blocks = []
         # for i in range(num_blocks):
@@ -95,39 +100,63 @@ class SASRec(nn.Module):
         # self.attn_blocks = nn.ModuleList(blocks)
     
     def self_attention(self, x):
-        """Scaled Dot Product Self-Attention.
+        """Scaled Dot-Product Self-Attention.
 
         Args:
-            x (torch.Tensor): input tensor of size(batch_size, max_seq_len, embedding_dim)
+            x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
 
         Returns:
-            torch.Tensor: attended input tensor of size(batch_size, max_seq_len, embedding_dim)
+            torch.Tensor: attended input tensor of size(batch_size, seq_len, embedding_dim)
         """
-        # input tensor x is of shape (batch_size, max_seq_len, embedding_dim)
-        _, max_seq_len, embedding_dim = x.size()
+        # input tensor x is of shape (batch_size, seq_len, embedding_dim)
+        batch_size, seq_len, embedding_dim = x.size()
+        
+        # infer attention head dimensions from argument num_heads, should be cleanly divisible
+        head_dim = embedding_dim // self.num_heads
         
         # project query, key, value and calculate attention scores
-        # query linear layer transforms each position into "this is what I am looking for?"
-        query = self.query_proj(x)  # (batch_size, max_seq_len, embedding_dim)
-        # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
-        key = self.key_proj(x).transpose(-2, -1)  # (batch_size, embedding_dim, max_seq_len)
-        # value linear layer transforms each position into "this is the information I pass along when attended to?"
-        value = self.value_proj(x)  # (batch_size, max_seq_len, embedding_dim)
-        # The matrix multiply aka dot product produces scores between each position and all others showing affinity
-        # large values in each signed direction mean position pairs are compatible or incompatible
-        # NOTE: sqrt to keep values not too extreme for softmax preventing saturation
-        attn_scores = (query @ key) / math.sqrt(embedding_dim)  # (batch_size, max_seq_len, max_seq_len)
+        # each linear layer contains all weights for all heads for efficency and later breaks them out via reshaping
 
-        # create and apply mask to protect causality aka attending to future/to the right positions
-        mask = torch.triu(torch.ones((max_seq_len, max_seq_len), device=x.device), diagonal=1).bool()
+        # query linear layer transforms each position into "this is what I am looking for?"
+        query = self.query_proj(x)  # (batch_size, seq_len, embedding_dim)
+        query = query.view(batch_size, seq_len, self.num_heads, head_dim).transpose(1, 2)  # (batch_size, num_heads, seq_len, head_dim)
+        
+        # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
+        key = self.key_proj(x)  # (batch_size, seq_len, embedding_dim)
+        key = key.view(batch_size, seq_len, self.num_heads, head_dim).transpose(1, 2)  # (batch_size, num_heads, seq_len, head_dim)
+        # transpose key for future matrix multiply so dimensions line up with query tensor
+        key = key.transpose(-2, -1)  # (batch_size, num_heads, head_dim, seq_len)
+        
+        # value linear layer transforms each position into "this is the information I pass along when attended to?"
+        value = self.value_proj(x)  # (batch_size, seq_len, embedding_dim)
+        value = value.view(batch_size, seq_len, self.num_heads, head_dim).transpose(1, 2)  # (batch_size, num_heads, seq_len, head_dim)
+       
+        # matrix multiply aka dot product produces scores between each position and all others showing affinity
+        # this creates a square matrix where each position pair generates a score, the diagnol being with itself
+        # large values in each signed direction mean position pairs are compatible or incompatible
+        # NOTE: sqrt is used to keep values not too extreme for softmax, preventing saturation
+        attn_scores = torch.matmul(query, key) / math.sqrt(head_dim)  # (batch_size, num_heads, seq_len, seq_len)
+
+        # create and apply boolean mask to protect causality
+        # aka each position not having scores associated with positions to the right of it
+        # NOTE: do not need to add other 2 dimensions to ones creation due to broadcasting in masked_fill
+        # TODO: Creating causal mask on every forward pass, move to registered buffer in __init__ instead
+        mask = torch.triu(torch.ones((seq_len, seq_len), device=x.device), diagonal=1).bool()
+        # negative infinity on the tensor entries marked as true means softmax later will turn these into virtually 0
         attn_scores = attn_scores.masked_fill(mask, float('-inf'))
 
         # softmax converts raw attention scores to be a normalized probability distribution over all positions
         # it normalizes across the "key" dimension so each "query" position's attention weight sums to 1
-        attn_weights = torch.softmax(attn_scores, dim=-1)  # (batch_size, max_seq_len, max_seq_len)
+        attn_weights = torch.softmax(attn_scores, dim=-1)  # (batch_size, num_heads, seq_len, seq_len)
 
         # Given the attention weights, does a weighted combination of each positions "value" representation
-        return attn_weights @ value  # (batch_size, max_seq_len, embedding_dim)
+        attn_output = torch.matmul(attn_weights, value)  # (batch_size, num_heads, seq_len, head_dim)
+        # Recombine heads by reshaping, making data layout contiguous first then condensing head_dim back to embedding_dim
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, embedding_dim)  # (batch_size, seq_len, embedding_dim)
+
+        # Produce and return the projection of the heads through the linear layer as a combined final output back to the original embedding_dim
+        attn = self.out_proj(attn_output)  # (batch_size, seq_len, embedding_dim)
+        return attn
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v1")

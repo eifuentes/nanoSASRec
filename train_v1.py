@@ -1,6 +1,7 @@
 """
 train_v1.py
 """
+import os
 import argparse
 import json
 from typing import Dict, Tuple, List
@@ -19,6 +20,7 @@ def load_data(data_dir: str, dataset: str) -> Tuple[Dict[int, List[int]], Dict[i
     Returns: user_train, user_valid, user_test, num_users, num_items, item_id_map
     """
     dataset_split_filepath = f"{data_dir}/{dataset}/split.json"
+    assert os.path.exists(dataset_split_filepath), f"Run `python data.py --dataset {dataset}` first"
     with open(dataset_split_filepath) as f:
         dataset_split = json.load(f)
 
@@ -35,7 +37,8 @@ def load_data(data_dir: str, dataset: str) -> Tuple[Dict[int, List[int]], Dict[i
     return user_train, user_valid, user_test, num_users, num_items, item_id_map
 
 def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: int, maxlen: int, batch_size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # Select random users of size batch_size
+    # Select random users without replacement of size batch_size
+    # NOTE: in the original SASRec they sample users with replacement
     batch_users = random.sample(range(1, num_users + 1), k=batch_size)
     # allocate input, target, and negative sequence batch matrices
     input_seq_batch = np.zeros((batch_size, maxlen - 1), int)
@@ -52,7 +55,7 @@ def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: in
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
-            # TODO: given np array is init with 0s this is redudant, could insert at correct index
+            # TODO: given np array is init with 0s this is redundant, could insert at correct index
             num_pads = maxlen - seqlen
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
@@ -60,7 +63,7 @@ def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: in
         # create additional sub-sequences from a single sequence
         # ideally done by shifting the input sequence left and lining up
         input_seq, target_seq = user_seq[:-1], user_seq[1:]  # each seq is maxlen - 1
-        # select random negatives from unseen items throuhgout entire sequence history
+        # select random negatives from unseen items throughout entire sequence history
         # TODO: can be optimized to be O(1) using `random.randint(1, num_items)` and checking if seen
         item_neg_pool = set(range(1, num_items + 1)) - set(user_seq)
         random_neg_seq = random.sample(list(item_neg_pool), k=len(target_seq))
@@ -71,35 +74,22 @@ def sample_batch(user_train: Dict[int, List[int]], num_users: int, num_items: in
     return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch
 
 
-class SASRec(nn.Module):
+class SelfAttention(nn.Module):
 
-    def __init__(self, num_items:int, max_seq_len:int, dropout_rate:float, embedding_dim:int, num_blocks: int = 2, num_heads: int = 1):
-
+    def __init__(self, embedding_dim:int, num_heads: int = 1):
+        
         super().__init__()
 
         # args
-        self.num_blocks = num_blocks
         self.num_heads = num_heads
-        
-        # Setup item and position embeddings tables to convert integers to dense vectors
-        self.item_embedding_table = nn.Embedding(num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0)
-        self.pos_embeding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
 
-        self.norm = nn.LayerNorm(normalized_shape=embedding_dim)
-        self.dropout = nn.Dropout(p=dropout_rate)
-
+        # setup the attention projections
         self.query_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
         self.key_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
         self.value_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
-        self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=True)
-        
-        # blocks = []
-        # for i in range(num_blocks):
-        #     blocks.append(nn.LayerNorm(normalized_shape=(seq_len, embedding_dim)))
-        #     blocks.append(nn.Dropout(p=dropout_rate))
-        # self.attn_blocks = nn.ModuleList(blocks)
-    
-    def self_attention(self, x):
+        self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+
+    def forward(self, x: torch.Tensor):
         """Scaled Dot-Product Self-Attention.
 
         Args:
@@ -132,7 +122,7 @@ class SASRec(nn.Module):
         value = value.view(batch_size, seq_len, self.num_heads, head_dim).transpose(1, 2)  # (batch_size, num_heads, seq_len, head_dim)
        
         # matrix multiply aka dot product produces scores between each position and all others showing affinity
-        # this creates a square matrix where each position pair generates a score, the diagnol being with itself
+        # this creates a square matrix where each position pair generates a score, the diagonal being with itself
         # large values in each signed direction mean position pairs are compatible or incompatible
         # NOTE: sqrt is used to keep values not too extreme for softmax, preventing saturation
         attn_scores = torch.matmul(query, key) / math.sqrt(head_dim)  # (batch_size, num_heads, seq_len, seq_len)
@@ -158,6 +148,73 @@ class SASRec(nn.Module):
         attn = self.out_proj(attn_output)  # (batch_size, seq_len, embedding_dim)
         return attn
 
+class AttentionBlock(nn.Module):
+
+    def __init__(self, dropout_rate:float, embedding_dim:int, num_heads: int = 1):
+
+        super().__init__()
+
+        # setup layers
+        # attention layers
+        self.norm_attn = nn.LayerNorm(normalized_shape=embedding_dim)
+        self.attn = SelfAttention(embedding_dim=embedding_dim, num_heads=num_heads)
+        self.dropout_attn = nn.Dropout(p=dropout_rate)
+        # feed-forward network layers
+        self.norm_ffn = nn.LayerNorm(normalized_shape=embedding_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=True),
+        )
+        self.dropout_ffn = nn.Dropout(p=dropout_rate)
+
+    def forward(self, x:torch.Tensor):
+        # forward attention
+        y = self.norm_attn(x)
+        y = self.attn(y)
+        y = self.dropout_attn(y)
+        x = x + y  # residual connections
+        # forward feed forward network
+        y = self.norm_ffn(x)
+        y = self.ffn(y)
+        y = self.dropout_ffn(y)
+        return x + y  # residual connections
+
+
+class SASRec(nn.Module):
+
+    def __init__(self, num_items:int, max_seq_len:int, dropout_rate:float, embedding_dim:int, num_blocks: int = 2, num_heads: int = 1):
+
+        super().__init__()
+        
+        # setup item and position embeddings tables to convert integers to dense vectors
+        self.item_embedding_table = nn.Embedding(num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0)
+        self.position_embedding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
+        self.dropout_embedding = nn.Dropout(p=dropout_rate)
+        self.final_norm = nn.LayerNorm(embedding_dim)
+        # Build attention blocks
+        self.attn_blocks = nn.ModuleList([
+            AttentionBlock(dropout_rate=dropout_rate, embedding_dim=embedding_dim, num_heads=num_heads)
+            for _ in range(num_blocks)
+        ])
+    
+    def forward(self, x: torch.Tensor):
+        batch_size, seq_len = x.size()
+        # convert item IDs to dense vectors
+        item_embeddings = self.item_embedding_table(x)  # (batch_size, seq_len, embedding_dim)
+        # convert item positions to dense vectors
+        positions = torch.arange(seq_len, device=x.device)
+        position_embeddings = self.position_embedding_table(positions)  # (seq_len, embedding_dim)
+        # add them together
+        embeddings = item_embeddings + position_embeddings  # automatic broadcast
+        # apply dropout
+        embeddings = self.dropout_embedding(embeddings)
+        # process through entire module list of attention blocks
+        x = embeddings
+        for attn_block in self.attn_blocks:
+            x = attn_block(x)
+        return self.final_norm(x)  # final layer normalization since attention ends in residual add
+
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v1")
     parser.add_argument("--dataset", type=str, default="ml-1m",
@@ -167,14 +224,23 @@ def main():
                         help="Root data directory")
     parser.add_argument("--batch-size", type=int, default=128,
                         help="Number of examples per batch")
-    parser.add_argument("--maxlen", type=int, default=50,
+    parser.add_argument("--maxlen", type=int, default=200,
                         help="Max sequence length per user")
+    parser.add_argument("--dropout", type=float, default=0.2,
+                        help="Dropout rate")
+    parser.add_argument("--dim", type=int, default=50,
+                        help="Embedding dimension size")
+    parser.add_argument("--blocks", type=int, default=2,
+                        help="Number of attention blocks")
+    parser.add_argument("--heads", type=int, default=1,
+                        help="Number of attention heads")
     args = parser.parse_args()
 
     # Load pre-processed dataset with train, validation, test splits
     user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
     input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size)
-    print(input_seq.shape, pos_seq.shape, neg_seq.shape)
+    print("Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
+    model = SASRec(num_items=num_items, max_seq_len=args.maxlen, dropout_rate=args.dropout, embedding_dim=args.dim, num_blocks=args.blocks, num_heads=args.heads)
 
 if __name__ == "__main__":
     main()

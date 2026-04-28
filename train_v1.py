@@ -11,6 +11,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
 DATASETS = ("ml-1m", "ml-20m", "beauty")
 
@@ -89,7 +90,7 @@ class SelfAttention(nn.Module):
         self.value_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
         self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Scaled Dot-Product Self-Attention.
 
         Args:
@@ -168,12 +169,12 @@ class AttentionBlock(nn.Module):
         )
         self.dropout_ffn = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x:torch.Tensor):
+    def forward(self, x:torch.Tensor) -> torch.Tensor:
         # forward attention
         y = self.norm_attn(x)
         y = self.attn(y)
         y = self.dropout_attn(y)
-        x = x + y  # residual connections
+        x = x + y  # residual connection: add original input back so gradients can flow through unchanged
         # forward feed forward network
         y = self.norm_ffn(x)
         y = self.ffn(y)
@@ -188,7 +189,9 @@ class SASRec(nn.Module):
         super().__init__()
         
         # setup item and position embeddings tables to convert integers to dense vectors
+        # +1 because item IDs are 1-indexed and index 0 is reserved for padding
         self.item_embedding_table = nn.Embedding(num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0)
+        # max_seq_len - 1 because the shifted input/target split reduces sequence length by 1
         self.position_embedding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
         self.dropout_embedding = nn.Dropout(p=dropout_rate)
         self.final_norm = nn.LayerNorm(embedding_dim)
@@ -198,7 +201,7 @@ class SASRec(nn.Module):
             for _ in range(num_blocks)
         ])
     
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len = x.size()
         # convert item IDs to dense vectors
         item_embeddings = self.item_embedding_table(x)  # (batch_size, seq_len, embedding_dim)
@@ -212,8 +215,22 @@ class SASRec(nn.Module):
         # process through entire module list of attention blocks
         x = embeddings
         for attn_block in self.attn_blocks:
-            x = attn_block(x)
-        return self.final_norm(x)  # final layer normalization since attention ends in residual add
+            x = attn_block(x)  # (batch_size, seq_len, embedding_dim)
+        # final layer normalization since attention ends in residual add 
+        return self.final_norm(x)  # (batch_size, seq_len, embedding_dim)
+    
+    def predict(self, input_seq: torch.Tensor, candidate_seqs: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, ...]:
+        # input and candidate sequence size(batch_size, seq_len)
+        output_seq = self.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
+        candidate_scores = []
+        for candidate_seq in candidate_seqs:
+            candidate_embeddings = self.item_embedding_table(candidate_seq)  # (batch_size, seq_len, embedding_dim)
+            # score each position's model output against its candidate item embedding
+            # element-wise multiply (not matmul) because we want one score per position,
+            # not all-pairs: e.g. position 3's output scored only against position 3's candidate
+            scores = torch.multiply(output_seq, candidate_embeddings).sum(dim=-1)  # (batch_size, seq_len)
+            candidate_scores.append(scores)
+        return tuple(candidate_scores) # (batch_size, seq_len)
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v1")
@@ -238,9 +255,38 @@ def main():
 
     # Load pre-processed dataset with train, validation, test splits
     user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
+    print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
+    # Sample input, target positives, and negatives for BCE loss sequences
     input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size)
-    print("Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
+    print("Input Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
+    # Init SASRec model with hyperparams
     model = SASRec(num_items=num_items, max_seq_len=args.maxlen, dropout_rate=args.dropout, embedding_dim=args.dim, num_blocks=args.blocks, num_heads=args.heads)
+    # Compute positive and negative sequence probabilities
+    input_seq, pos_seq, neg_seq = torch.as_tensor(input_seq), torch.as_tensor(pos_seq), torch.as_tensor(neg_seq)
+    pos_seq_scores, neg_seq_scores = model.predict(input_seq, candidate_seqs=(pos_seq, neg_seq))
+    # numerical stability: sigmoid can output values at exactly 0.0 or 1.0
+    # due to floating point, and log(0) = -inf which poisons the loss.
+    # clamp keeps probabilities in (eps, 1-eps) so log is always finite.
+    # in practice, use nn.BCEWithLogitsLoss which avoids this entirely
+    # by never computing log(sigmoid(x)) directly.
+    eps = 1e-7
+    pos_seq_probas, neg_seq_probas = pos_seq_scores.sigmoid().clamp(eps, 1 - eps), neg_seq_scores.sigmoid().clamp(eps, 1 - eps)
+    print("Proba shapes:", pos_seq_probas.size(), neg_seq_probas.size())
+    # Calculate binary cross entropy (BCE) loss
+    # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
+    loss = pos_seq_probas.log().neg() + (1 - neg_seq_probas).log().neg()
+    print("Loss:", loss.size())
+    # Apply mask to remove sequences that have padding values as positive targets
+    # which are invalid targets and add noise to the loss signal
+    # Example:
+    # original (padded):  [0, 0, 0, A, B, C]
+    #             input:  [0, 0, 0, A, B]     (padded[:-1])
+    #            target:  [0, 0, A, B, C]     (padded[1:])
+    mask = (pos_seq != 0)  # boolean True where pad value `0` is not present
+    loss = loss * mask
+    # preserves averaging with variable padded sequences over only valid positions
+    bce = loss.sum() / mask.sum()
+    print("BCE:", bce.item())
 
 if __name__ == "__main__":
     main()

@@ -410,6 +410,7 @@ def main():
 
     # step 1: load raw interactions
     print(f"\n[1/4] Loading raw data ...")
+    os.makedirs(args.data_dir, exist_ok=True)
     raw = ds["loader"](args.data_dir)
     print(f"  Raw interactions: {len(raw)}")
 

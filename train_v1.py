@@ -1,17 +1,24 @@
 """
-train_v1.py
+train_v1.py — vanilla SASRec + BCE
+
+Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
+with binary cross-entropy loss and negative sampling.
+
+Paper: Kang & McAuley, 2018 (arxiv: 1808.09781)
 """
-import os
 import argparse
 import json
-from typing import Dict, Tuple, List
-import random
 import math
+import os
+import random
+import time
+from datetime import datetime, timezone
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.optim import Adam
 
 DATASETS = ("ml-1m", "ml-20m", "beauty")
 
@@ -251,42 +258,84 @@ def main():
                         help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=1,
                         help="Number of attention heads")
+    parser.add_argument("--lr", type=float, default=1e-3,
+                        help="Learning rate for optimizer during training")
+    parser.add_argument("--epochs", type=int, default=200,
+                        help="Number of epochs for training")
+    parser.add_argument("--device", type=str, default="cpu",
+                        help="Device to run computation")
     args = parser.parse_args()
 
+    # Determine device
+    device = torch.device(args.device)
+    if torch.cuda.is_available() and args.device == "cpu":
+        print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
+
+    # numerical stability for sigmoid in loss function
+    eps = 1e-7
     # Load pre-processed dataset with train, validation, test splits
     user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
-    # Sample input, target positives, and negatives for BCE loss sequences
-    input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size)
-    print("Input Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
+
     # Init SASRec model with hyperparams
     model = SASRec(num_items=num_items, max_seq_len=args.maxlen, dropout_rate=args.dropout, embedding_dim=args.dim, num_blocks=args.blocks, num_heads=args.heads)
-    # Compute positive and negative sequence probabilities
-    input_seq, pos_seq, neg_seq = torch.as_tensor(input_seq), torch.as_tensor(pos_seq), torch.as_tensor(neg_seq)
-    pos_seq_scores, neg_seq_scores = model.predict(input_seq, candidate_seqs=(pos_seq, neg_seq))
-    # numerical stability: sigmoid can output values at exactly 0.0 or 1.0
-    # due to floating point, and log(0) = -inf which poisons the loss.
-    # clamp keeps probabilities in (eps, 1-eps) so log is always finite.
-    # in practice, use nn.BCEWithLogitsLoss which avoids this entirely
-    # by never computing log(sigmoid(x)) directly.
-    eps = 1e-7
-    pos_seq_probas, neg_seq_probas = pos_seq_scores.sigmoid().clamp(eps, 1 - eps), neg_seq_scores.sigmoid().clamp(eps, 1 - eps)
-    print("Proba shapes:", pos_seq_probas.size(), neg_seq_probas.size())
-    # Calculate binary cross entropy (BCE) loss
-    # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
-    loss = pos_seq_probas.log().neg() + (1 - neg_seq_probas).log().neg()
-    print("Loss:", loss.size())
-    # Apply mask to remove sequences that have padding values as positive targets
-    # which are invalid targets and add noise to the loss signal
-    # Example:
-    # original (padded):  [0, 0, 0, A, B, C]
-    #             input:  [0, 0, 0, A, B]     (padded[:-1])
-    #            target:  [0, 0, A, B, C]     (padded[1:])
-    mask = (pos_seq != 0)  # boolean True where pad value `0` is not present
-    loss = loss * mask
-    # preserves averaging with variable padded sequences over only valid positions
-    bce = loss.sum() / mask.sum()
-    print("BCE:", bce.item())
+    model = model.to(device)
+    optimizer = Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
+    batches_per_epoch = num_users // args.batch_size
+    print("batches_per_epoch:", batches_per_epoch)
+
+    model.train()
+    for epoch in range(args.epochs):
+        epoch_loss = 0.0
+        for batch in range(batches_per_epoch):
+            # Zero out last loops gradient accumulations
+            optimizer.zero_grad()
+            
+            # Sample input, target positives, and negatives for BCE loss sequences
+            input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size)
+            # print("Input Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
+
+            # Compute positive and negative sequence probabilities
+            input_seq, pos_seq, neg_seq = torch.as_tensor(input_seq).to(device), torch.as_tensor(pos_seq).to(device), torch.as_tensor(neg_seq).to(device)
+            pos_seq_scores, neg_seq_scores = model.predict(input_seq, candidate_seqs=(pos_seq, neg_seq))
+            # numerical stability: sigmoid can output values at exactly 0.0 or 1.0
+            # due to floating point, and log(0) = -inf which poisons the loss.
+            # clamp keeps probabilities in (eps, 1-eps) so log is always finite.
+            # in practice, use nn.BCEWithLogitsLoss which avoids this entirely
+            # by never computing log(sigmoid(x)) directly.
+            pos_seq_probas, neg_seq_probas = pos_seq_scores.sigmoid().clamp(eps, 1 - eps), neg_seq_scores.sigmoid().clamp(eps, 1 - eps)
+            # print("Proba shapes:", pos_seq_probas.size(), neg_seq_probas.size())
+            
+            # Calculate binary cross entropy (BCE) loss
+            # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
+            loss = pos_seq_probas.log().neg() + (1 - neg_seq_probas).log().neg()
+            # print("Loss:", loss.size())
+            # Apply mask to remove sequences that have padding values as positive targets
+            # which are invalid targets and add noise to the loss signal
+            # Example:
+            # original (padded):  [0, 0, 0, A, B, C]
+            #             input:  [0, 0, 0, A, B]     (padded[:-1])
+            #            target:  [0, 0, A, B, C]     (padded[1:])
+            mask = (pos_seq != 0)  # boolean True where pad value `0` is not present
+            loss = loss * mask
+            # preserves averaging with variable padded sequences over only valid positions
+            bce = loss.sum() / mask.sum()
+            # Conduct backwards propogation and update parameters
+            bce.backward()
+            optimizer.step()
+            # log current batch iteration loss value
+            epoch_loss += bce.item()
+        
+        # log loss at end of epoch
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg BCE loss: {epoch_loss / batches_per_epoch:.4f}")
+
+        # conduct evaluation
+        model.eval()
+        # torch.no_grad():
+
+        # switch back for next epoch back to train
+        model.train()
 
 if __name__ == "__main__":
     main()

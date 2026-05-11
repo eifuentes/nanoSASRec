@@ -171,6 +171,7 @@ def reindex_and_split(interactions: list):
       num_items:  int
     """
     # sort by (user, timestamp) to get temporal order
+    # NOTE: ensures each users history is sorted from oldest to newest
     interactions.sort(key=lambda x: (x[0], x[2]))
 
     # build sequences per user (preserving temporal order)

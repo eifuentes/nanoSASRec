@@ -7,3 +7,18 @@ dependencies = [
     "torch>=2.7",
     "numpy>=1.24",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 119
+
+[tool.ruff.lint]
+# Enable Pyflakes (F) and Error (E) codes by default
+# Added "I" for sorted imports
+select = ["E", "F", "I"] 
+fixable = ["ALL"]

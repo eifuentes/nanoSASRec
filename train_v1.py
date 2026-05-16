@@ -248,6 +248,7 @@ class SASRec(nn.Module):
 
 def evaluate(model: SASRec, user_train: Dict[int, List[int]], user_valid: Dict[int, List[int]], user_test: Dict[int, List[int]], num_users: int, num_items: int, maxlen: int, device: torch.device, mode: str = "valid", topk:int = 10) -> Tuple[float, float]:
     hrs, ndcgs = [], []
+    eval_max_len = maxlen - 1  # required to match training
     for user in range(1, num_users + 1):
         # generate user sequence based on mode
         user_seq = list(user_train[user])  # copy
@@ -257,15 +258,14 @@ def evaluate(model: SASRec, user_train: Dict[int, List[int]], user_valid: Dict[i
 
         # pad to max sequence length
         seqlen = len(user_seq)
-        max_len = maxlen - 1  # required to match training
-        if seqlen >= max_len:
+        if seqlen >= eval_max_len:
             # User sequences are temporally ordered from oldest to newest
             # For these models its best practice to keep the most recent interactions
-            start_idx = seqlen - max_len
+            start_idx = seqlen - eval_max_len
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
-            num_pads = max_len - seqlen
+            num_pads = eval_max_len - seqlen
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
 
@@ -424,7 +424,6 @@ def main():
             
             # Sample input, target positives, and negatives for BCE loss sequences
             input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size)
-            # print("Input Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
 
             # Compute positive and negative sequence probabilities
             input_seq, pos_seq, neg_seq = torch.as_tensor(input_seq).to(device), torch.as_tensor(pos_seq).to(device), torch.as_tensor(neg_seq).to(device)

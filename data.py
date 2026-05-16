@@ -18,9 +18,9 @@ Usage:
   python data.py --dataset ml-20m   # preprocesses MovieLens-20M
 """
 
-import os
-import json
 import argparse
+import json
+import os
 import zipfile
 from collections import Counter, defaultdict
 from itertools import chain
@@ -35,6 +35,7 @@ URLS = {
     "ml-20m": "https://files.grouplens.org/datasets/movielens/ml-20m.zip",
 }
 
+
 def download(url: str, dest: str):
     """Download a file if it doesn't already exist."""
     if os.path.exists(dest):
@@ -48,7 +49,7 @@ def download(url: str, dest: str):
 def extract_zip(zip_path: str, extract_to: str):
     """Extract a zip file."""
     print(f"  extracting {zip_path} ...")
-    with zipfile.ZipFile(zip_path, 'r') as zf:
+    with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(extract_to)
 
 
@@ -56,6 +57,7 @@ def extract_zip(zip_path: str, extract_to: str):
 # Raw data loaders — one per dataset
 # Each returns list of (user_id, item_id, timestamp) tuples, raw strings ok
 # ---------------------------------------------------------------------------
+
 
 def load_ml1m_raw(data_dir: str):
     """Load MovieLens-1M raw interactions."""
@@ -67,7 +69,7 @@ def load_ml1m_raw(data_dir: str):
 
     interactions = []
     ratings_file = os.path.join(raw_dir, "ratings.dat")
-    with open(ratings_file, 'r') as f:
+    with open(ratings_file, "r") as f:
         for line in f:
             user, item, _, ts = line.strip().split("::")
             interactions.append((user, item, int(ts)))
@@ -84,7 +86,7 @@ def load_ml20m_raw(data_dir: str):
 
     interactions = []
     ratings_file = os.path.join(raw_dir, "ratings.csv")
-    with open(ratings_file, 'r') as f:
+    with open(ratings_file, "r") as f:
         next(f)  # skip header
         for line in f:
             user, item, _, ts = line.strip().split(",")
@@ -113,7 +115,7 @@ def load_beauty_raw(data_dir: str):
     # This file is already preprocessed: each line is user's item sequence
     # We return it in a special format that skips k-core filtering
     interactions = []
-    with open(txt_path, 'r') as f:
+    with open(txt_path, "r") as f:
         for user_id, line in enumerate(f, 1):
             items = line.strip().split()
             for t, item_id in enumerate(items):
@@ -128,6 +130,7 @@ def load_beauty_raw(data_dir: str):
 # across the entire SASRec paper lineage.
 # ---------------------------------------------------------------------------
 
+
 def kcore_filter(interactions: list, k: int = 5):
     """
     Iteratively remove users and items with fewer than k interactions
@@ -137,10 +140,7 @@ def kcore_filter(interactions: list, k: int = 5):
         user_counts = Counter(u for u, i, t in interactions)
         item_counts = Counter(i for u, i, t in interactions)
 
-        filtered = [
-            (u, i, t) for u, i, t in interactions
-            if user_counts[u] >= k and item_counts[i] >= k
-        ]
+        filtered = [(u, i, t) for u, i, t in interactions if user_counts[u] >= k and item_counts[i] >= k]
 
         if len(filtered) == len(interactions):
             break  # converged
@@ -152,6 +152,7 @@ def kcore_filter(interactions: list, k: int = 5):
 # ---------------------------------------------------------------------------
 # Reindex and split
 # ---------------------------------------------------------------------------
+
 
 def reindex_and_split(interactions: list):
     """
@@ -186,10 +187,7 @@ def reindex_and_split(interactions: list):
     item_map = {i: idx for idx, i in enumerate(sorted(all_items), 1)}
 
     # apply reindexing
-    user_seqs = {
-        user_map[u]: [item_map[i] for i in seq]
-        for u, seq in user_seqs_raw.items()
-    }
+    user_seqs = {user_map[u]: [item_map[i] for i in seq] for u, seq in user_seqs_raw.items()}
 
     num_users = len(user_seqs)
     num_items = len(item_map)
@@ -221,6 +219,7 @@ def reindex_and_split(interactions: list):
 # Write to canonical format
 # ---------------------------------------------------------------------------
 
+
 def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path):
     """
     Write to the canonical SASRec .txt format:
@@ -230,7 +229,7 @@ def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path)
     The split is implicit: last = test, second-to-last = valid, rest = train.
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, 'w') as f:
+    with open(out_path, "w") as f:
         for u in range(1, num_users + 1):
             full_seq = user_train.get(u, []) + user_valid.get(u, []) + user_test.get(u, [])
             items_str = " ".join(str(i) for i in full_seq)
@@ -252,6 +251,7 @@ def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path)
 # Write the split as JSON for train_v*.py to load
 # ---------------------------------------------------------------------------
 
+
 def write_split(user_train, user_valid, user_test, num_users, num_items, item_map, out_dir):
     """Write the split and item ID mapping as JSON for train_v*.py to load."""
     os.makedirs(out_dir, exist_ok=True)
@@ -270,7 +270,7 @@ def write_split(user_train, user_valid, user_test, num_users, num_items, item_ma
     }
 
     split_path = os.path.join(out_dir, "split.json")
-    with open(split_path, 'w') as f:
+    with open(split_path, "w") as f:
         json.dump(split, f)
     print(f"  Wrote split to {split_path}")
 
@@ -278,7 +278,7 @@ def write_split(user_train, user_valid, user_test, num_users, num_items, item_ma
 def load_split(data_dir: str):
     """Load a preprocessed split from disk. Used by train_v*.py scripts."""
     split_path = os.path.join(data_dir, "split.json")
-    with open(split_path, 'r') as f:
+    with open(split_path, "r") as f:
         split = json.load(f)
 
     user_train = {int(k): v for k, v in split["user_train"].items()}
@@ -297,6 +297,7 @@ def load_split(data_dir: str):
 # Item titles (optional, for human-readable predictions)
 # ---------------------------------------------------------------------------
 
+
 def write_item_titles_ml1m(data_dir: str, out_dir: str):
     """Parse ML-1M movies.dat and write a titles.json mapping raw movie ID -> title."""
     movies_file = os.path.join(data_dir, "ml-1m", "movies.dat")
@@ -304,7 +305,7 @@ def write_item_titles_ml1m(data_dir: str, out_dir: str):
         return
 
     titles = {}
-    with open(movies_file, 'r', encoding='latin-1') as f:
+    with open(movies_file, "r", encoding="latin-1") as f:
         for line in f:
             # format: MovieID::Title::Genres
             parts = line.strip().split("::")
@@ -312,7 +313,7 @@ def write_item_titles_ml1m(data_dir: str, out_dir: str):
             titles[movie_id] = title
 
     titles_path = os.path.join(out_dir, "titles.json")
-    with open(titles_path, 'w') as f:
+    with open(titles_path, "w") as f:
         json.dump(titles, f)
     print(f"  Wrote {len(titles)} item titles to {titles_path}")
 
@@ -324,7 +325,7 @@ def write_item_titles_ml20m(data_dir: str, out_dir: str):
         return
 
     titles = {}
-    with open(movies_file, 'r', encoding='utf-8') as f:
+    with open(movies_file, "r", encoding="utf-8") as f:
         next(f)  # skip header
         for line in f:
             # format: movieId,title,genres (title may contain commas, but is not quoted consistently)
@@ -336,7 +337,7 @@ def write_item_titles_ml20m(data_dir: str, out_dir: str):
             titles[movie_id] = title
 
     titles_path = os.path.join(out_dir, "titles.json")
-    with open(titles_path, 'w') as f:
+    with open(titles_path, "w") as f:
         json.dump(titles, f)
     print(f"  Wrote {len(titles)} item titles to {titles_path}")
 
@@ -350,9 +351,9 @@ def load_item_titles(data_dir: str):
     if not os.path.exists(titles_path):
         return {}
 
-    with open(split_path, 'r') as f:
+    with open(split_path, "r") as f:
         split = json.load(f)
-    with open(titles_path, 'r') as f:
+    with open(titles_path, "r") as f:
         raw_titles = json.load(f)
 
     item_id_map = split.get("item_id_map", {})
@@ -397,41 +398,40 @@ DATASETS = {
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec data preprocessing")
-    parser.add_argument("--dataset", type=str, default="ml-1m",
-                        choices=list(DATASETS.keys()),
-                        help="Dataset to preprocess")
-    parser.add_argument("--data-dir", type=str, default="data",
-                        help="Root data directory")
+    parser.add_argument(
+        "--dataset", type=str, default="ml-1m", choices=list(DATASETS.keys()), help="Dataset to preprocess"
+    )
+    parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
     args = parser.parse_args()
 
     ds = DATASETS[args.dataset]
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  Preprocessing: {args.dataset}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # step 1: load raw interactions
-    print(f"\n[1/4] Loading raw data ...")
+    print("\n[1/4] Loading raw data ...")
     os.makedirs(args.data_dir, exist_ok=True)
     raw = ds["loader"](args.data_dir)
     print(f"  Raw interactions: {len(raw)}")
 
     # step 2: k-core filtering (if needed)
     if ds["kcore"]:
-        print(f"\n[2/4] Applying k=5 core filtering ...")
+        print("\n[2/4] Applying k=5 core filtering ...")
         filtered = kcore_filter(raw, k=5)
         print(f"  After filtering: {len(filtered)} (removed {len(raw) - len(filtered)})")
     else:
-        print(f"\n[2/4] Skipping k-core (pre-filtered dataset)")
+        print("\n[2/4] Skipping k-core (pre-filtered dataset)")
         filtered = raw
 
     # step 3: reindex and split
-    print(f"\n[3/4] Reindexing and splitting ...")
+    print("\n[3/4] Reindexing and splitting ...")
     user_train, user_valid, user_test, num_users, num_items, item_map = reindex_and_split(filtered)
 
     # step 4: write outputs
     out_dir = os.path.join(args.data_dir, args.dataset)
     txt_path = os.path.join(out_dir, f"{args.dataset}.txt")
-    print(f"\n[4/4] Writing outputs ...")
+    print("\n[4/4] Writing outputs ...")
     write_txt(user_train, user_valid, user_test, num_users, num_items, txt_path)
     write_split(user_train, user_valid, user_test, num_users, num_items, item_map, out_dir)
 
@@ -440,9 +440,9 @@ def main():
     if titles_writer:
         titles_writer(args.data_dir, out_dir)
 
-    print(f"\n{'='*60}")
-    print(f"  Done! Run train_v1.py to start training.")
-    print(f"{'='*60}\n")
+    print(f"\n{'=' * 60}")
+    print("  Done! Run train_v1.py to start training.")
+    print(f"{'=' * 60}\n")
 
 
 if __name__ == "__main__":

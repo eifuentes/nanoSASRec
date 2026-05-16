@@ -7,7 +7,10 @@ with Sampled Softmax Loss (SSML)
 Run using the command: `uv run python train_v2.py --epochs 200 --eval-every 20`
 Be sure to specify the device you want to run on using the --device argument.
 
-References: <FILL IN>
+References:
+  - Kang & McAuley, 2018 (arxiv: 1808.09781) — SASRec architecture
+  - Jean et al., ACL 2015 (arxiv: 1412.2007) — Sampled Softmax for NLP
+  - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) — SSM applied to SASRec
 """
 
 import argparse
@@ -355,7 +358,7 @@ def evaluate(
             seen = set(user_train[user]) | set(user_valid[user]) | {ground_truth}
         # draw 100 negative samples for eval (matches original SASRec protocol)
         # NOTE: sampled eval with 100 negatives inflates metrics vs full-catalog eval
-        # this is addressed in train_v2.py+ with sampled softmax and full-catalog evaluation
+        # full-catalog evaluation explored in later versions.
         negatives = []
         while len(negatives) < 100:
             item = random.randint(1, num_items)
@@ -483,8 +486,8 @@ def main():
             # Zero out last loops gradient accumulations
             optimizer.zero_grad()
 
-            # Sampled input user sequences, causal perserving target positives, and user-level negatives for loss calcuation
-            # input and positive sequence arrays are max_len - 1 length due to autogressive learning task setup
+            # Sampled input user sequences, causal preserving target positives, and user-level negatives for loss calculation
+            # input and positive sequence arrays are max_len - 1 length due to autoregressive learning task setup
             # each row in batch_size is a sampled user
             input_seq, pos_seq, neg_seq = sample_batch(
                 user_train,
@@ -505,28 +508,32 @@ def main():
             pos_embedding_seq = model.item_embedding_table(pos_seq)  # (batch_size, seq_len, embedding_dim)
             neg_embedding_seq = model.item_embedding_table(neg_seq)  # (batch_size, num_negs, embedding_dim)
 
-            # Calculte the scores aka logits with the processed input sequence for the positive and negative examples each
+            # Calculate the scores aka logits with the processed input sequence for the positive and negative examples each
             pos_logits_seq = torch.multiply(output_embedding_seq, pos_embedding_seq).sum(
                 dim=-1
             )  # (batch_size, seq_len)
             neg_logits_seq = torch.matmul(
                 output_embedding_seq, neg_embedding_seq.transpose(1, 2)
-            )  # (batch_size, seq_len, num_negs)
+            )  # size(batch_size, seq_len, num_negs)
 
             # Calculate Sampled Softmax Loss (SSML)
             # Loss: -log( exp(score_pos) / (exp(score_pos) + sum(exp(score_neg))) )
-            # NOTE: the version uncommented is numerically unstable solution below would be more stable but not as easy to read
+            # NOTE: the version used below is numerically unstable solution
+            # if any negative scores are large (say > 80), exp(80) overflows float32.
+            # This won't happen in early training but could in later epochs
+            # as the model becomes more confident
+            neg_seq_logits_exp_sum = neg_logits_seq.exp().sum(dim=-1)  # (batch_size, seq_len)
+            pos_seq_logits_exp = pos_logits_seq.exp()  # (batch_size, seq_len)
+            loss = -torch.log(
+                pos_seq_logits_exp / (pos_seq_logits_exp + neg_seq_logits_exp_sum)
+            )  # size(batch_size, seq_len)
+            # Below would be the more stable version than above but not as easy to read
             # -----
             # stack positive and negatives together: (batch_size, seq_len, 1 + num_negs)
             # logits_seq = torch.cat([pos_logits_seq.unsqueeze(dim=-1), neg_logits_seq], dim=-1)
             # logsumexp across candidates, then subtract the positive score
             # loss = torch.logsumexp(logits_seq, dim=-1) - pos_logits_seq
             # -----
-            neg_seq_logits_exp_sum = neg_logits_seq.exp().sum(dim=-1)  # (batch_size, seq_len)
-            pos_seq_logits_exp = pos_logits_seq.exp()  # (batch_size, seq_len)
-            loss = -torch.log(
-                pos_seq_logits_exp / (pos_seq_logits_exp + neg_seq_logits_exp_sum)
-            )  # (batch_size, seq_len)
 
             # Apply mask to remove sequences that have padding values as positive targets
             # which are invalid targets and add noise to the loss signal
@@ -564,14 +571,14 @@ def main():
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
-                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}]"
-                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} |"
-                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] " 
+                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | " 
+                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}" 
             )
         else:
             # log loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}]Avg loss: {epoch_loss / batches_per_epoch:.4f}")
+            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f}")
 
     # test set evaluation
     model.eval()
@@ -589,7 +596,7 @@ def main():
             topk=args.topk,
         )
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{ts}] [Epochs {args.epochs}]Test metrics: HR@{args.topk}: {test_hr:.4f}NDCG@{args.topk}: {test_ndcg:.4f}")
+    print(f"[{ts}] [Epochs {args.epochs}] Test metrics: HR@{args.topk}: {test_hr:.4f} NDCG@{args.topk}: {test_ndcg:.4f}")
 
     # Run playful demo to showcase predictions
     if titles:

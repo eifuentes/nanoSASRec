@@ -4,3 +4,5 @@
 v1
 
 v2
+
+`uv run python train_v2.py --device mps --epochs 200 --eval-every 20`

@@ -1,8 +1,11 @@
 """
-train_v2.py — TODO: Fill out
+train_v2.py — SASRec + Sampled Softmax
 
 Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
-with <FILL IN>
+with Sampled Softmax Loss (SSML)
+
+Run using the command: `uv run python train_v2.py --epochs 200 --eval-every 20`
+Be sure to specify the device you want to run on using the --device argument.
 
 References: <FILL IN>
 """
@@ -204,6 +207,7 @@ class SelfAttention(nn.Module):
         attn = self.out_proj(attn_output)  # (batch_size, seq_len, embedding_dim)
         return attn
 
+
 class AttentionBlock(nn.Module):
 
     def __init__(self, dropout_rate:float, embedding_dim:int, num_heads: int = 1):
@@ -274,21 +278,10 @@ class SASRec(nn.Module):
         # final layer normalization since attention ends in residual add 
         return self.final_norm(x)  # (batch_size, seq_len, embedding_dim)
 
-# FIXME: LEFT OFF HERE May 9th, 2026
-    # def predict(self, input_seq: torch.Tensor, candidate_seqs: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, ...]:
-    #     # input and candidate sequence size(batch_size, seq_len, num_samples)
-    #     # num_samples for positive is jsut 1 so its a blank axis, for negative candidates it will be num_negatives
-    #     output_seq = self.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
-    #     candidate_scores = []
-    #     for candidate_seq in candidate_seqs:
-    #         candidate_embeddings = self.item_embedding_table(candidate_seq)  # (batch_size, seq_len, num_samples, embedding_dim)
-    #         # score each position's model output against its candidate item embedding and its samples
-    #         scores = torch.matmul(output_seq, candidate_embeddings) # (batch_size, seq_len, num_samples)
-    #         candidate_scores.append(scores)
-    #     return tuple(candidate_scores) # (batch_size, seq_len, num_samples)
 
 def evaluate(model: SASRec, user_train: Dict[int, List[int]], user_valid: Dict[int, List[int]], user_test: Dict[int, List[int]], num_users: int, num_items: int, max_len: int, device: torch.device, mode: str = "valid", topk:int = 10) -> Tuple[float, float]:
     hrs, ndcgs = [], []
+    eval_max_len = max_len - 1  # required to match training
     for user in range(1, num_users + 1):
         # generate user sequence based on mode
         user_seq = list(user_train[user])  # copy
@@ -298,21 +291,20 @@ def evaluate(model: SASRec, user_train: Dict[int, List[int]], user_valid: Dict[i
 
         # pad to max sequence length
         seq_len = len(user_seq)
-        max_len = max_len - 1  # required to match training
-        if seq_len >= max_len:
+        if seq_len >= eval_max_len:
             # User sequences are temporally ordered from oldest to newest
             # For these models its best practice to keep the most recent interactions
-            start_idx = seq_len - max_len
+            start_idx = seq_len - eval_max_len
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
-            num_pads = max_len - seq_len
+            num_pads = eval_max_len - seq_len
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
 
         # convert to tensors and do model forward pass extracting last position as prediction
         input_seq = torch.tensor(user_seq, dtype=torch.long).expand(1, -1).to(device)
-        output_seq = model.forward(input_seq)
+        output_seq = model.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
         output_pred = output_seq[:, -1, :]
 
         # determine ground truth in leave one out evaluation methodology
@@ -360,6 +352,7 @@ def evaluate(model: SASRec, user_train: Dict[int, List[int]], user_valid: Dict[i
     ndcg_at = sum(ndcgs) / num_users
     return hr_at, ndcg_at
 
+
 def demo(user, model, user_train, user_valid, user_test, num_items, max_len, device, titles):
     def name(item_id):
         return titles.get(item_id, f"item_{item_id}")
@@ -401,7 +394,7 @@ def demo(user, model, user_train, user_valid, user_test, num_items, max_len, dev
 
 
 def main():
-    parser = argparse.ArgumentParser(description="nanoSASRec train v1")
+    parser = argparse.ArgumentParser(description="nanoSASRec train v2")
     parser.add_argument("--dataset", type=str, default="ml-1m",
                         choices=DATASETS,
                         help="Dataset to use")
@@ -438,8 +431,6 @@ def main():
     if torch.cuda.is_available() and args.device == "cpu":
         print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
 
-    # numerical stability for sigmoid in loss function
-    eps = 1e-7
     # Load pre-processed dataset with train, validation, test splits
     user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
@@ -456,49 +447,47 @@ def main():
     # betas=(0.9, 0.98) from original Transformer paper, PyTorch default is (0.9, 0.999)
     optimizer = Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
     batches_per_epoch = num_users // args.batch_size
-    print("Est. batches per epoch:", batches_per_epoch)
+    print("Estimate batches per epoch:", batches_per_epoch)
 
     # Training loop
     for epoch in range(args.epochs):
         model.train()
         epoch_loss = 0.0
-        for batch in range(batches_per_epoch):
+        for batch_idx in range(batches_per_epoch):
             # Zero out last loops gradient accumulations
             optimizer.zero_grad()
             
-            # Sample input, target positives, and negatives for BCE loss sequences
+            # Sampled input user sequences, causal perserving target positives, and user-level negatives for loss calcuation
+            # input and positive sequence arrays are max_len - 1 length due to autogressive learning task setup
+            # each row in batch_size is a sampled user
             input_seq, pos_seq, neg_seq = sample_batch(user_train, num_users=num_users, num_items=num_items, max_len=args.max_len, batch_size=args.batch_size, num_negs=args.num_negatives)
-            # print("Input Shapes:", input_seq.shape, pos_seq.shape, neg_seq.shape)
 
-            # Compute positive and negative sequence probabilities
-            input_seq, pos_seq, neg_seq = torch.as_tensor(input_seq).to(device), torch.as_tensor(pos_seq).to(device), torch.as_tensor(neg_seq).to(device)
-            
-            # FIXME: START LEFT OFF HERE May 9th, 2026
-            # DELETE ME: pos_seq_scores, neg_seq_scores = model.predict(input_seq, candidate_seqs=(pos_seq, neg_seq))
-            #     # input and candidate sequence size(batch_size, seq_len, num_samples)
-            #     # num_samples for positive is jsut 1 so its a blank axis, for negative candidates it will be num_negatives
-            #     output_seq = self.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
-            #     candidate_scores = []
-            #     for candidate_seq in candidate_seqs:
-            #         candidate_embeddings = self.item_embedding_table(candidate_seq)  # (batch_size, seq_len, num_samples, embedding_dim)
-            #         # score each position's model output against its candidate item embedding and its samples
-            #         scores = torch.matmul(output_seq, candidate_embeddings) # (batch_size, seq_len, num_samples)
-            #         candidate_scores.append(scores)
-            #     return tuple(candidate_scores) # (batch_size, seq_len, num_samples)
-            # FIXME: END LEFT OFF HERE May 9th, 2026
+            # Convert numpy int64 arrays to torch LongTensors
+            input_seq = torch.as_tensor(input_seq).to(device)  # (batch_size, seq_len)
+            pos_seq = torch.as_tensor(pos_seq).to(device)  # (batch_size, seq_len)
+            neg_seq = torch.as_tensor(neg_seq).to(device)  # (batch_size, num_negs)
 
-            # Calculate Sampled Softmax Loss
+            # Determine embeddings for input, positive and negative sequences
+            output_embedding_seq = model.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
+            pos_embedding_seq = model.item_embedding_table(pos_seq)  # (batch_size, seq_len, embedding_dim)
+            neg_embedding_seq = model.item_embedding_table(neg_seq)  # (batch_size, num_negs, embedding_dim)
+
+            # Calculte the scores aka logits with the processed input sequence for the positive and negative examples each
+            pos_logits_seq = torch.multiply(output_embedding_seq, pos_embedding_seq).sum(dim=-1)  # (batch_size, seq_len)
+            neg_logits_seq = torch.matmul(output_embedding_seq, neg_embedding_seq.transpose(1, 2))  # (batch_size, seq_len, num_negs)
+
+            # Calculate Sampled Softmax Loss (SSML)
             # Loss: -log( exp(score_pos) / (exp(score_pos) + sum(exp(score_neg))) )
-            # NOTE: this version is numerically unstable solution below would be more stable but not as easy to read
+            # NOTE: the version uncommented is numerically unstable solution below would be more stable but not as easy to read
             # -----
-            # stack positive and negatives together: (batch, seq_len, 1 + num_negatives)
-            # all_scores = torch.cat([pos_seq_scores.unsqueeze(-1), neg_seq_scores], dim=-1)
+            # stack positive and negatives together: (batch_size, seq_len, 1 + num_negs)
+            # logits_seq = torch.cat([pos_logits_seq.unsqueeze(dim=-1), neg_logits_seq], dim=-1)
             # logsumexp across candidates, then subtract the positive score
-            # loss = torch.logsumexp(all_scores, dim=-1) - pos_seq_scores
+            # loss = torch.logsumexp(logits_seq, dim=-1) - pos_logits_seq
             # -----
-            neg_seq_scores_exp_sum = neg_seq_scores.exp().sum(dim=-1)  # (batch, seq_len)
-            pos_seq_scores_exp = pos_seq_scores.exp()  # (batch, seq_len)
-            loss = -torch.log(pos_seq_scores_exp / (pos_seq_scores_exp + neg_seq_scores_exp_sum))
+            neg_seq_logits_exp_sum = neg_logits_seq.exp().sum(dim=-1)  # (batch_size, seq_len)
+            pos_seq_logits_exp = pos_logits_seq.exp()  # (batch_size, seq_len)
+            loss = -torch.log(pos_seq_logits_exp / (pos_seq_logits_exp + neg_seq_logits_exp_sum))  # (batch_size, seq_len)
             
             # Apply mask to remove sequences that have padding values as positive targets
             # which are invalid targets and add noise to the loss signal
@@ -509,12 +498,12 @@ def main():
             mask = (pos_seq != 0)  # boolean True where pad value `0` is not present
             loss = loss * mask
             # preserves averaging with variable padded sequences over only valid positions
-            bce = loss.sum() / mask.sum()
+            ssml = loss.sum() / mask.sum()
             # Conduct backwards propagation and update parameters
-            bce.backward()
+            ssml.backward()
             optimizer.step()
             # log current batch iteration loss value
-            epoch_loss += bce.item()
+            epoch_loss += ssml.item()
 
         # log loss and periodically do evaluation
         if (epoch + 1) % args.eval_every == 0 or (epoch + 1) == args.epochs:
@@ -524,11 +513,11 @@ def main():
                 hr, ndcg = evaluate(model=model, user_train=user_train, user_valid=user_valid, user_test=user_test, num_users=num_users, num_items=num_items, max_len=args.max_len, device=device, mode="valid", topk=args.topk)
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg BCE loss: {epoch_loss / batches_per_epoch:.4f} | HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}")
+            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f} | HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}")
         else:
             # log loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg BCE loss: {epoch_loss / batches_per_epoch:.4f}")
+            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f}")
 
     # test set evaluation
     model.eval()
@@ -548,6 +537,7 @@ def main():
         # run demo
         if demo_user:
             demo(demo_user, model, user_train, user_valid, user_test, num_items, args.max_len, device, titles)
+
 
 if __name__ == "__main__":
     main()

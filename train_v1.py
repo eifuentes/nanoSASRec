@@ -517,12 +517,12 @@ def main():
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
-                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg BCE loss: {epoch_loss / batches_per_epoch:.4f} | HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f} | HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
             )
         else:
             # log loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg BCE loss: {epoch_loss / batches_per_epoch:.4f}")
+            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f}")
 
     # test set evaluation
     model.eval()

@@ -54,7 +54,7 @@ def extract_zip(zip_path: str, extract_to: str):
 
 
 # ---------------------------------------------------------------------------
-# Raw data loaders — one per dataset
+# Raw data loaders - one per dataset
 # Each returns list of (user_id, item_id, timestamp) tuples, raw strings ok
 # ---------------------------------------------------------------------------
 
@@ -165,9 +165,9 @@ def reindex_and_split(interactions: list):
       - rest              -> train
 
     Returns:
-      user_train: dict[int, list[int]]  — user -> list of item ids
-      user_valid: dict[int, list[int]]  — user -> [item_id] or []
-      user_test:  dict[int, list[int]]  — user -> [item_id] or []
+      user_train: dict[int, list[int]]  - user -> list of item ids
+      user_valid: dict[int, list[int]]  - user -> [item_id] or []
+      user_test:  dict[int, list[int]]  - user -> [item_id] or []
       num_users:  int
       num_items:  int
     """

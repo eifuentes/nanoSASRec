@@ -1,5 +1,5 @@
 """
-train_v2.py — SASRec + Sampled Softmax
+train_v2.py - SASRec + Sampled Softmax
 
 Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
 with Sampled Softmax Loss (SSML)

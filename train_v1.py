@@ -1,10 +1,14 @@
 """
-train_v1.py — vanilla SASRec + BCE
+train_v1.py - vanilla SASRec + BCE
 
 Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
 with binary cross-entropy loss and negative sampling.
 
-Paper: Kang & McAuley, 2018 (arxiv: 1808.09781)
+Run using the command: `uv run python train_v1.py --epochs 200 --eval-every 20`
+Be sure to specify the device you want to run on using the --device argument.
+
+References:
+    - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture
 """
 
 import argparse
@@ -58,41 +62,41 @@ def load_item_titles(data_dir: str, dataset: str, item_id_map: Dict[int, str]) -
 
 
 def sample_batch(
-    user_train: Dict[int, List[int]], num_users: int, num_items: int, maxlen: int, batch_size: int
+    user_train: Dict[int, List[int]], num_users: int, num_items: int, max_len: int, batch_size: int
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # Select random users without replacement of size batch_size
     # NOTE: in the original SASRec they sample users with replacement
     batch_users = random.sample(range(1, num_users + 1), k=batch_size)
     # allocate input, target, and negative sequence batch matrices
-    input_seq_batch = np.zeros((batch_size, maxlen - 1), int)
-    target_pos_seq_batch = np.zeros((batch_size, maxlen - 1), int)
-    target_neg_seq_batch = np.zeros((batch_size, maxlen - 1), int)
-    # extract user sequence and truncate or pad sequence to maxlen
-    for i, user in enumerate(batch_users):
-        user_seq = user_train[user]
-        seqlen = len(user_seq)
-        if seqlen >= maxlen:
+    input_seq_batch = np.zeros((batch_size, max_len - 1), dtype=np.int64)
+    target_pos_seq_batch = np.zeros((batch_size, max_len - 1), dtype=np.int64)
+    target_neg_seq_batch = np.zeros((batch_size, max_len - 1), dtype=np.int64)
+    # extract user sequence and truncate or pad sequence to max_len
+    for i, user_id in enumerate(batch_users):
+        user_seq = user_train[user_id]
+        user_seq_len = len(user_seq)
+        if user_seq_len >= max_len:
             # User sequences are temporally ordered from oldest to newest
             # For these models its best practice to keep the most recent interactions
-            start_idx = seqlen - maxlen
+            start_idx = user_seq_len - max_len
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
             # TODO: given np array is init with 0s this is redundant, could insert at correct index
-            num_pads = maxlen - seqlen
+            num_pads = max_len - user_seq_len
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
         # create input and target sequences
         # create additional sub-sequences from a single sequence
         # ideally done by shifting the input sequence left and lining up
-        input_seq, target_seq = user_seq[:-1], user_seq[1:]  # each seq is maxlen - 1
+        input_user_seq, target_user_seq = user_seq[:-1], user_seq[1:]  # each seq is max_len - 1
         # select random negatives from unseen items throughout entire sequence history
         # TODO: can be optimized to be O(1) using `random.randint(1, num_items)` and checking if seen
         item_neg_pool = set(range(1, num_items + 1)) - set(user_seq)
-        random_neg_seq = random.sample(list(item_neg_pool), k=len(target_seq))
+        random_neg_seq = random.sample(list(item_neg_pool), k=len(target_user_seq))
         # move list of ints into numpy arrays
-        input_seq_batch[i, :] = input_seq
-        target_pos_seq_batch[i, :] = target_seq
+        input_seq_batch[i, :] = input_user_seq
+        target_pos_seq_batch[i, :] = target_user_seq
         target_neg_seq_batch[i, :] = random_neg_seq
     return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch
 
@@ -280,13 +284,13 @@ def evaluate(
     user_test: Dict[int, List[int]],
     num_users: int,
     num_items: int,
-    maxlen: int,
+    max_len: int,
     device: torch.device,
     mode: str = "valid",
     topk: int = 10,
 ) -> Tuple[float, float]:
     hrs, ndcgs = [], []
-    eval_max_len = maxlen - 1  # required to match training
+    eval_max_len = max_len - 1  # required to match training
     for user in range(1, num_users + 1):
         # generate user sequence based on mode
         user_seq = list(user_train[user])  # copy
@@ -295,15 +299,15 @@ def evaluate(
             user_seq = user_seq + user_valid[user]
 
         # pad to max sequence length
-        seqlen = len(user_seq)
-        if seqlen >= eval_max_len:
+        seq_len = len(user_seq)
+        if seq_len >= eval_max_len:
             # User sequences are temporally ordered from oldest to newest
             # For these models its best practice to keep the most recent interactions
-            start_idx = seqlen - eval_max_len
+            start_idx = seq_len - eval_max_len
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
-            num_pads = eval_max_len - seqlen
+            num_pads = eval_max_len - seq_len
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
 
@@ -326,7 +330,7 @@ def evaluate(
             seen = set(user_train[user]) | set(user_valid[user]) | {ground_truth}
         # draw 100 negative samples for eval (matches original SASRec protocol)
         # NOTE: sampled eval with 100 negatives inflates metrics vs full-catalog eval
-        # this is addressed in train_v2.py+ with sampled softmax and full-catalog evaluation
+        # full-catalog evaluation explored in later versions.
         negatives = []
         while len(negatives) < 100:
             item = random.randint(1, num_items)
@@ -358,13 +362,13 @@ def evaluate(
     return hr_at, ndcg_at
 
 
-def demo(user, model, user_train, user_valid, user_test, num_items, maxlen, device, titles):
+def demo(user, model, user_train, user_valid, user_test, num_items, max_len, device, titles):
     def name(item_id):
         return titles.get(item_id, f"item_{item_id}")
 
     # build input sequence (train + valid, same as test eval)
     user_seq = list(user_train[user]) + user_valid[user]
-    max_len = maxlen - 1
+    max_len = max_len - 1
     if len(user_seq) >= max_len:
         user_seq = user_seq[-max_len:]
     else:
@@ -403,7 +407,7 @@ def main():
     parser.add_argument("--dataset", type=str, default="ml-1m", choices=DATASETS, help="Dataset to use")
     parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
     parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
-    parser.add_argument("--maxlen", type=int, default=200, help="Max sequence length per user")
+    parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate")
     parser.add_argument("--dim", type=int, default=50, help="Embedding dimension size")
     parser.add_argument("--blocks", type=int, default=2, help="Number of attention blocks")
@@ -431,7 +435,7 @@ def main():
     # Init SASRec model with hyperparams
     model = SASRec(
         num_items=num_items,
-        max_seq_len=args.maxlen,
+        max_seq_len=args.max_len,
         dropout_rate=args.dropout,
         embedding_dim=args.dim,
         num_blocks=args.blocks,
@@ -444,7 +448,7 @@ def main():
     # betas=(0.9, 0.98) from original Transformer paper, PyTorch default is (0.9, 0.999)
     optimizer = Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98))
     batches_per_epoch = num_users // args.batch_size
-    print("Est. batches per epoch:", batches_per_epoch)
+    print("Estimate batches per epoch:", batches_per_epoch)
 
     # Training loop
     for epoch in range(args.epochs):
@@ -456,7 +460,7 @@ def main():
 
             # Sample input, target positives, and negatives for BCE loss sequences
             input_seq, pos_seq, neg_seq = sample_batch(
-                user_train, num_users=num_users, num_items=num_items, maxlen=args.maxlen, batch_size=args.batch_size
+                user_train, num_users=num_users, num_items=num_items, max_len=args.max_len, batch_size=args.batch_size
             )
 
             # Compute positive and negative sequence probabilities
@@ -475,12 +479,10 @@ def main():
                 pos_seq_scores.sigmoid().clamp(eps, 1 - eps),
                 neg_seq_scores.sigmoid().clamp(eps, 1 - eps),
             )
-            # print("Proba shapes:", pos_seq_probas.size(), neg_seq_probas.size())
 
             # Calculate binary cross entropy (BCE) loss
             # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
             loss = pos_seq_probas.log().neg() + (1 - neg_seq_probas).log().neg()
-            # print("Loss:", loss.size())
             # Apply mask to remove sequences that have padding values as positive targets
             # which are invalid targets and add noise to the loss signal
             # Example:
@@ -509,7 +511,7 @@ def main():
                     user_test=user_test,
                     num_users=num_users,
                     num_items=num_items,
-                    maxlen=args.maxlen,
+                    max_len=args.max_len,
                     device=device,
                     mode="valid",
                     topk=args.topk,
@@ -534,7 +536,7 @@ def main():
             user_test,
             num_users,
             num_items,
-            args.maxlen,
+            args.max_len,
             device,
             mode="test",
             topk=args.topk,
@@ -554,7 +556,7 @@ def main():
                 break
         # run demo
         if demo_user:
-            demo(demo_user, model, user_train, user_valid, user_test, num_items, args.maxlen, device, titles)
+            demo(demo_user, model, user_train, user_valid, user_test, num_items, args.max_len, device, titles)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,6 @@ Protocol:
 
 Usage:
   python data.py                    # downloads and preprocesses ML-1M
-  python data.py --dataset beauty   # preprocesses Amazon Beauty
   python data.py --dataset ml-20m   # preprocesses MovieLens-20M
 """
 

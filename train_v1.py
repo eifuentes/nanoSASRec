@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 
-DATASETS = ("ml-1m", "ml-20m", "beauty")
+DATASETS = ("ml-1m", "ml-20m")
 
 
 def load_data(
@@ -292,16 +292,6 @@ def evaluate(
     hrs, ndcgs = [], []
     eval_max_len = max_len - 1  # required to match training
     for user in range(1, num_users + 1):
-        
-        # skip users with empty validation/test sets
-        # should never trigger if dataset is preprocessed correctly
-        if mode == "valid" and len(user_valid[user]) == 0:
-            print(f"user {user} contains no entries for the validation set!")
-            continue
-        if mode == "test" and len(user_test[user]) == 0:
-            print(f"user {user} contains no entries for the test set!")
-            continue
-
         # generate user sequence based on mode
         user_seq = list(user_train[user])  # copy
         if mode == "test":

@@ -19,8 +19,8 @@ This project builds up SASRec from its original framing all the way to its HSTU 
 | Step | Change | Dataset |
 |------|--------|---------|
 | `train_v1.py` | vanilla SASRec + BCE | ML-1M |
-| `train_v2.py` | switch to sampled softmax | ML-1M, Beauty |
-| `train_v3.py` | add gBCE loss + calibration plot | ML-1M, Beauty |
+| `train_v2.py` | switch to sampled softmax | ML-1M |
+| `train_v3.py` | add gBCE loss + calibration plot | ML-1M |
 | `train_v4.py` | implementation refinements, decompose modules | ML-1M |
 | `train_v5.py` | scale to ML-20M, watch depth collapse | ML-20M |
 | `train_v6.py` | fix residual pattern | ML-20M |
@@ -46,7 +46,6 @@ Check out [CURRICULUM.md](CURRICULUM.md) to walk through all 8 versions of this 
 | Dataset | Role | Users | Items | Avg len | When used |
 |---------|------|-------|-------|---------|-----------|
 | ML-1M | Unit test | 6,040 | 3,416 | 163.5 | v1–v4 |
-| Beauty | Sparsity stress test | 22,363 | 12,101 | 8.8 | v2–v3 |
 | ML-20M | Scaling test | ~138K | ~27K | ~144 | v5–v8 |
 
 ## Papers

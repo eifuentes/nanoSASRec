@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 
-DATASETS = ("ml-1m", "ml-20m", "beauty")
+DATASETS = ("ml-1m", "ml-20m")
 
 
 def load_data(

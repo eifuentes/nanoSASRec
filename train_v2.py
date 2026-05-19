@@ -1,5 +1,5 @@
 """
-train_v2.py — SASRec + Sampled Softmax
+train_v2.py - SASRec + Sampled Softmax
 
 Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
 with Sampled Softmax Loss (SSML)
@@ -8,9 +8,9 @@ Run using the command: `uv run python train_v2.py --epochs 200 --eval-every 20`
 Be sure to specify the device you want to run on using the --device argument.
 
 References:
-  - Kang & McAuley, 2018 (arxiv: 1808.09781) — SASRec architecture
-  - Jean et al., ACL 2015 (arxiv: 1412.2007) — Sampled Softmax for NLP
-  - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) — SSM applied to SASRec
+    - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture
+    - Jean et al., ACL 2015 (arxiv: 1412.2007) - Sampled Softmax for NLP
+    - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) - SSM applied to SASRec
 """
 
 import argparse
@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 
-DATASETS = ("ml-1m", "ml-20m", "beauty")
+DATASETS = ("ml-1m", "ml-20m")
 
 
 def load_data(
@@ -480,8 +480,11 @@ def main():
 
     # Training loop
     for epoch in range(args.epochs):
+        # enter train mode for model to update model params
         model.train()
+        # initialize epoch loss to log every iteration
         epoch_loss = 0.0
+        # iterate over batches per epoch and update model parameters given loss
         for batch_idx in range(batches_per_epoch):
             # Zero out last loops gradient accumulations
             optimizer.zero_grad()
@@ -571,9 +574,9 @@ def main():
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
-                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] " 
-                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | " 
-                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}" 
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
+                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
+                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
             )
         else:
             # log loss so far
@@ -596,7 +599,9 @@ def main():
             topk=args.topk,
         )
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{ts}] [Epochs {args.epochs}] Test metrics: HR@{args.topk}: {test_hr:.4f} NDCG@{args.topk}: {test_ndcg:.4f}")
+    print(
+        f"[{ts}] [Epochs {args.epochs}] Test metrics: HR@{args.topk}: {test_hr:.4f} NDCG@{args.topk}: {test_ndcg:.4f}"
+    )
 
     # Run playful demo to showcase predictions
     if titles:

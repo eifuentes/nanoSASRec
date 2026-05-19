@@ -12,6 +12,7 @@ References:
     - Petrov & Macdonald, RecSys 2023 Best Paper (arxiv: 2308.07192) - gBCE loss
     - Petrov & Macdonald, ACM TORS 2025 (doi: 10.1145/3699521) - gBCE proofs and calibration
 """
+
 import argparse
 import json
 import math
@@ -25,7 +26,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 
-DATASETS = ("ml-1m", "ml-20m", "beauty")
+DATASETS = ("ml-1m", "ml-20m")
 
 
 def load_data(
@@ -441,7 +442,7 @@ def main():
     parser.add_argument("--heads", type=int, default=1, help="Number of attention heads")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
-    parser.add_argument("--num-negatives", type=int, default=1, help="Number of negatives to sample for training")
+    parser.add_argument("--num-negatives", type=int, default=256, help="Number of negatives to sample for training")
     parser.add_argument("--t", type=float, default=0.5, help="gBCE calibration parameter (0 < t < 1)")
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
     parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
@@ -525,7 +526,7 @@ def main():
             )  # size(batch_size, seq_len, num_negs)
 
             # Compute positive and negative sequence probabilities from logits
-            
+
             # NOTE numerical stability: sigmoid can output values at exactly 0.0 or 1.0
             # due to floating point, and log(0) = -inf which poisons the loss.
             # clamp keeps probabilities in (eps, 1-eps) so log is always finite.
@@ -538,13 +539,13 @@ def main():
 
             # Calculate generalized binary cross entropy (gBCE) loss
             # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
-            # gBCE: introduce t as calibration parameter to control positive term sigmoid shape 
+            # gBCE: introduce t as calibration parameter to control positive term sigmoid shape
             # and average over num_negatives if more than 1 is provided
             # NOTE: `t` calibration parameter (0 < t < 1) that downweights positive signal
             # to correct for undersampling negatives relative to the full catalog
             pos_scores_seq = args.t * pos_probas_seq.log().neg()  # size(batch_size, seq_len)
             neg_scores_seq = (1 - args.t) * (1 - neg_probas_seq).log().neg().mean(dim=-1)  # size(batch_size, seq_len)
-            loss =  pos_scores_seq + neg_scores_seq
+            loss = pos_scores_seq + neg_scores_seq
 
             # Apply mask to remove sequences that have padding values as positive targets
             # which are invalid targets and add noise to the loss signal
@@ -582,11 +583,10 @@ def main():
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
-                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] " 
-                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | " 
-                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f} | " 
-                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}" 
-                
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
+                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
+                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f} | "
+                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
             )
         else:
             # log loss so far
@@ -594,7 +594,7 @@ def main():
             print(
                 f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
                 f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
-                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f}" 
+                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f}"
             )
 
     # test set evaluation
@@ -613,7 +613,9 @@ def main():
             topk=args.topk,
         )
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{ts}] [Epochs {args.epochs}] Test metrics: HR@{args.topk}: {test_hr:.4f} NDCG@{args.topk}: {test_ndcg:.4f}")
+    print(
+        f"[{ts}] [Epochs {args.epochs}] Test metrics: HR@{args.topk}: {test_hr:.4f} NDCG@{args.topk}: {test_ndcg:.4f}"
+    )
 
     # Run playful demo to showcase predictions
     if titles:

@@ -14,7 +14,7 @@ unlocks trillion-parameter scale.
 - **Hidasi et al., ICLR 2016** (1511.06939): GRU4Rec. First RNN for session-based recommendation. The baseline SASRec was built to replace.
 - **Vaswani et al., NeurIPS 2017** (1706.03762): "Attention Is All You Need." The Transformer architecture. SASRec adapts the decoder-only (causal) variant.
 - **Kang & McAuley, ICDM 2018** (1808.09781): **SASRec.** Causal self-attention over item sequences for next-item prediction. Trained with BCE loss and 1 negative sample. The architecture this entire repo is built around.
-- **Sun et al., CIKM 2019** (1904.06690): **BERT4Rec.** Bidirectional attention with masked-item prediction (Cloze objective). Claimed superiority over SASRec — setting up the debate resolved below.
+- **Sun et al., CIKM 2019** (1904.06690): **BERT4Rec.** Bidirectional attention with masked-item prediction (Cloze objective). Claimed superiority over SASRec - setting up the debate resolved below.
 
 ## The SASRec vs. BERT4Rec debate (2019–2022)
 
@@ -51,50 +51,50 @@ underperformance is caused by its loss function, not its architecture.
 
 ## The bridge to HSTU (2022–2024)
 
-- **Pancha, Zhai et al., KDD 2022** (2205.04507): **PinnerFormer.** Industrial-scale SASRec at Pinterest. Introduces "Dense All Action" loss (predict all future actions, not just next item). Pre-LN residuals, sampled softmax. Co-authored by Jiaqi Zhai — the direct architectural stepping stone to HSTU.
+- **Pancha, Zhai et al., KDD 2022** (2205.04507): **PinnerFormer.** Industrial-scale SASRec at Pinterest. Introduces "Dense All Action" loss (predict all future actions, not just next item). Pre-LN residuals, sampled softmax. Co-authored by Jiaqi Zhai - the direct architectural stepping stone to HSTU.
 - **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." The Rosetta Stone. Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling.
 - **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. M-FALCON inference. Trillion-parameter scale with power-law scaling. The north star.
 
 ---
 
-*Everything above maps directly to code in this repo. Everything below is context on where the field went after HSTU — useful background, but not implemented here.*
+*Everything above maps directly to code in this repo. Everything below is context on where the field went after HSTU - useful background, but not implemented here.*
 
 ## Where the field went next (not implemented here)
 
 No new architecture has displaced transformers in production. The field after HSTU
-looks like LLMs after the original Transformer — everyone is scaling and adapting the
+looks like LLMs after the original Transformer - everyone is scaling and adapting the
 same core architecture, but via different paths. The work organizes into four lanes.
 
 ### HSTU-family production scaling
 
-- **Meta, 2026** (2602.16986): ULTRA-HSTU — sparse attention, attention truncation, Mixture of Transducers. 5× training scaling, 21× inference scaling over baseline HSTU. Deployed to billions of users.
+- **Meta, 2026** (2602.16986): ULTRA-HSTU - sparse attention, attention truncation, Mixture of Transducers. 5× training scaling, 21× inference scaling over baseline HSTU. Deployed to billions of users.
 - **Netflix, 2025** ([tech blog](https://netflixtechblog.com/foundation-model-for-personalized-recommendation-1a0bd8e02d39)): Consolidated hundreds of specialized models into a single transformer foundation model over all user interactions. Interaction tokenization, sparse attention, embedding stabilization. Deployed to 300M+ users. Confirms recommendation scaling laws.
-- **Meituan, CIKM 2025** (2505.18654): MTGR — adapts HSTU to retain DLRM-style cross-features. +1.22% take-away orders in production.
-- **ByteDance, RecSys 2025** (2505.04421): LONGER — global tokens + hybrid attention for 10K+ sequences.
-- **Huang et al., KDD 2025** (2505.04180): GenRank — Xiaohongshu's generative ranking at scale.
+- **Meituan, CIKM 2025** (2505.18654): MTGR - adapts HSTU to retain DLRM-style cross-features. +1.22% take-away orders in production.
+- **ByteDance, RecSys 2025** (2505.04421): LONGER - global tokens + hybrid attention for 10K+ sequences.
+- **Huang et al., KDD 2025** (2505.04180): GenRank - Xiaohongshu's generative ranking at scale.
 
 ### Semantic ID maturation
 
-- **Rajput et al., NeurIPS 2023** (2305.05065): TIGER — generative retrieval with Semantic IDs via RQ-VAE. The paper that started this lane.
-- **Ye et al., KDD 2024** (2406.14017): EAGER — two-stream behavioral + semantic SID generation (Huawei).
-- **Google/YouTube, 2025** (2510.07784): PLUM — adapts Gemini-family LLMs with multi-modal Semantic IDs. MoE-3B scale, +5% CTR on YouTube Shorts, launched to billions of users. The biggest production validation of Semantic IDs.
-- **Snap Research, CIKM 2025** (2507.22224): GRID — practitioner's handbook for SID-based generative recommendation. Systematic ablations found RQ-KMeans often matches neural RQ-VAE. Open-source.
-- **Zheng et al., Meta, 2025** (2504.02137): Semantic ID prefix-ngram — deployed in Meta Ads ranking for 1+ years. Prefix-ngram parameterization is key to effectiveness. 0.15% online gain, 43% reduction in A/A prediction variance. Shows SIDs working *within* HSTU/DLRM ranking, bridging the two lanes.
-- **Spotify Research, 2025** ([blog](https://research.atspotify.com/2025/9/semantic-ids-for-generative-search-and-recommendation)): Semantic IDs for joint search and recommendation. Key finding: task-specific SIDs don't generalize across tasks — multi-task embeddings needed.
-- **Petrov & Macdonald, WSDM 2024** (2312.06165): RecJPQ — sub-item ID decomposition via product quantization for 47× memory reduction. A different approach to the same item representation scaling problem SIDs address.
+- **Rajput et al., NeurIPS 2023** (2305.05065): TIGER - generative retrieval with Semantic IDs via RQ-VAE. The paper that started this lane.
+- **Ye et al., KDD 2024** (2406.14017): EAGER - two-stream behavioral + semantic SID generation (Huawei).
+- **Google/YouTube, 2025** (2510.07784): PLUM - adapts Gemini-family LLMs with multi-modal Semantic IDs. MoE-3B scale, +5% CTR on YouTube Shorts, launched to billions of users. The biggest production validation of Semantic IDs.
+- **Snap Research, CIKM 2025** (2507.22224): GRID - practitioner's handbook for SID-based generative recommendation. Systematic ablations found RQ-KMeans often matches neural RQ-VAE. Open-source.
+- **Zheng et al., Meta, 2025** (2504.02137): Semantic ID prefix-ngram - deployed in Meta Ads ranking for 1+ years. Prefix-ngram parameterization is key to effectiveness. 0.15% online gain, 43% reduction in A/A prediction variance. Shows SIDs working *within* HSTU/DLRM ranking, bridging the two lanes.
+- **Spotify Research, 2025** ([blog](https://research.atspotify.com/2025/9/semantic-ids-for-generative-search-and-recommendation)): Semantic IDs for joint search and recommendation. Key finding: task-specific SIDs don't generalize across tasks - multi-task embeddings needed.
+- **Petrov & Macdonald, WSDM 2024** (2312.06165): RecJPQ - sub-item ID decomposition via product quantization for 47× memory reduction. A different approach to the same item representation scaling problem SIDs address.
 
 ### Alignment as post-training
 
-- **Deng et al., 2025** (2502.18965): OneRec — end-to-end generative recommendation with DPO alignment (Kuaishou). Deployed to hundreds of millions of DAU.
-- **Tencent, 2025** (2511.10138): GPR — unified generative advertising on Weixin Channels with Hierarchy Enhanced Policy Optimization (HEPO).
-- **JD.com, WWW 2025**: GRAM — generative retrieval with DPO for e-commerce.
+- **Deng et al., 2025** (2502.18965): OneRec - end-to-end generative recommendation with DPO alignment (Kuaishou). Deployed to hundreds of millions of DAU.
+- **Tencent, 2025** (2511.10138): GPR - unified generative advertising on Weixin Channels with Hierarchy Enhanced Policy Optimization (HEPO).
+- **JD.com, WWW 2025**: GRAM - generative retrieval with DPO for e-commerce.
 - Most deployed systems (PLUM, PinRec, MTGR, COBRA) still skip alignment. DPO is an emerging pattern, not yet standard.
 
 The only non-transformer contender is Mamba/SSM-based sequential recommendation (Mamba4Rec, SSD4Rec), which offers linear-time complexity but has no production deployments as of early 2026. Pre-HSTU attention variants like BSARec (frequency-domain filtering) and Rec-Denoiser (learned sparse masks) explored fixes to SASRec's limitations but were superseded by the HSTU approach.
 
 ### Open-source
 
-- **Meta**: [generative-recommenders](https://github.com/meta-recsys/generative-recommenders) — official HSTU + M-FALCON implementation. The definitive reference.
-- **Snap**: [GRID](https://github.com/snap-research/GRID) — modular Semantic ID framework with RQ-KMeans, RQ-VAE, and ablation configs.
+- **Meta**: [generative-recommenders](https://github.com/meta-recsys/generative-recommenders) - official HSTU + M-FALCON implementation. The definitive reference.
+- **Snap**: [GRID](https://github.com/snap-research/GRID) - modular Semantic ID framework with RQ-KMeans, RQ-VAE, and ablation configs.
 - **MiniOneRec** (2510.24431): open-source SFT→RL workflow for LLM-based generative recommendation.
 - **NVIDIA CUTLASS**: official HSTU attention kernel.

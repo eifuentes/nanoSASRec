@@ -13,7 +13,7 @@ clean-cache:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 
-# nuke everything — data, runs, caches
+# nuke everything - data, runs, caches
 clean-all:
 	rm -rf data/ checkpoints/ runs/ *.log __pycache__/ **/__pycache__/
 

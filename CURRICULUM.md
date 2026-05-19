@@ -4,7 +4,7 @@ Curriculum walkthrough from v1 to v8.
 
 ## Differences
 
-Here are known differences than the original implementation of SASRec.
+Here are known differences from the original SASRec implementation.
 
 - **v1 uses Pre-LN** (norm before attention), the original uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models, which is why we start with it - v5+ needs it to scale.
 - **Weight initialization** differs from the original (PyTorch defaults vs Xavier uniform). Affects early training dynamics, shifts final metrics by 1-3%.
@@ -511,7 +511,7 @@ Estimate batches per epoch: 47
 
 ### Run
 
-`uv run python train_v3.py --device mps --epochs 200 --eval-every 20 --num-negatives 256`
+`uv run python train_v3.py --device mps --epochs 200 --eval-every 20`
 
 ### Output
 
@@ -521,222 +521,222 @@ Number Items: 3,416
 Dataset Lengths: 6040 6040 6040
 Model parameters: 211,500
 Estimate batches per epoch: 47
-[03:43:47] [Epoch 1/200] Avg loss: 2.5356 | Avg P(pos): 0.5409
-[03:43:48] [Epoch 2/200] Avg loss: 1.7205 | Avg P(pos): 0.5660
-[03:43:50] [Epoch 3/200] Avg loss: 1.2264 | Avg P(pos): 0.5491
-[03:43:52] [Epoch 4/200] Avg loss: 0.9411 | Avg P(pos): 0.5391
-[03:43:54] [Epoch 5/200] Avg loss: 0.7916 | Avg P(pos): 0.5408
-[03:43:56] [Epoch 6/200] Avg loss: 0.7077 | Avg P(pos): 0.5521
-[03:43:57] [Epoch 7/200] Avg loss: 0.6569 | Avg P(pos): 0.5668
-[03:43:59] [Epoch 8/200] Avg loss: 0.6313 | Avg P(pos): 0.5821
-[03:44:01] [Epoch 9/200] Avg loss: 0.6109 | Avg P(pos): 0.5934
-[03:44:03] [Epoch 10/200] Avg loss: 0.5982 | Avg P(pos): 0.6035
-[03:44:04] [Epoch 11/200] Avg loss: 0.5819 | Avg P(pos): 0.6130
-[03:44:06] [Epoch 12/200] Avg loss: 0.5717 | Avg P(pos): 0.6199
-[03:44:08] [Epoch 13/200] Avg loss: 0.5625 | Avg P(pos): 0.6227
-[03:44:10] [Epoch 14/200] Avg loss: 0.5524 | Avg P(pos): 0.6283
-[03:44:12] [Epoch 15/200] Avg loss: 0.5428 | Avg P(pos): 0.6316
-[03:44:13] [Epoch 16/200] Avg loss: 0.5363 | Avg P(pos): 0.6327
-[03:44:15] [Epoch 17/200] Avg loss: 0.5326 | Avg P(pos): 0.6347
-[03:44:17] [Epoch 18/200] Avg loss: 0.5243 | Avg P(pos): 0.6393
-[03:44:19] [Epoch 19/200] Avg loss: 0.5225 | Avg P(pos): 0.6430
-[03:44:29] [Epoch 20/200] Avg loss: 0.5187 | Avg P(pos): 0.6488 | HR@10: 0.4363 NDCG@10: 0.2401
-[03:44:31] [Epoch 21/200] Avg loss: 0.5127 | Avg P(pos): 0.6599
-[03:44:32] [Epoch 22/200] Avg loss: 0.5122 | Avg P(pos): 0.6632
-[03:44:34] [Epoch 23/200] Avg loss: 0.5091 | Avg P(pos): 0.6697
-[03:44:36] [Epoch 24/200] Avg loss: 0.5116 | Avg P(pos): 0.6687
-[03:44:38] [Epoch 25/200] Avg loss: 0.5067 | Avg P(pos): 0.6721
-[03:44:39] [Epoch 26/200] Avg loss: 0.5043 | Avg P(pos): 0.6582
-[03:44:41] [Epoch 27/200] Avg loss: 0.5036 | Avg P(pos): 0.6413
-[03:44:43] [Epoch 28/200] Avg loss: 0.4999 | Avg P(pos): 0.6303
-[03:44:45] [Epoch 29/200] Avg loss: 0.4993 | Avg P(pos): 0.6244
-[03:44:47] [Epoch 30/200] Avg loss: 0.4963 | Avg P(pos): 0.6200
-[03:44:48] [Epoch 31/200] Avg loss: 0.4974 | Avg P(pos): 0.6131
-[03:44:50] [Epoch 32/200] Avg loss: 0.4946 | Avg P(pos): 0.6122
-[03:44:52] [Epoch 33/200] Avg loss: 0.4909 | Avg P(pos): 0.6125
-[03:44:54] [Epoch 34/200] Avg loss: 0.4931 | Avg P(pos): 0.6095
-[03:44:55] [Epoch 35/200] Avg loss: 0.4892 | Avg P(pos): 0.6072
-[03:44:57] [Epoch 36/200] Avg loss: 0.4896 | Avg P(pos): 0.6066
-[03:44:59] [Epoch 37/200] Avg loss: 0.4900 | Avg P(pos): 0.6032
-[03:45:01] [Epoch 38/200] Avg loss: 0.4895 | Avg P(pos): 0.5993
-[03:45:03] [Epoch 39/200] Avg loss: 0.4848 | Avg P(pos): 0.6021
-[03:45:13] [Epoch 40/200] Avg loss: 0.4849 | Avg P(pos): 0.6022 | HR@10: 0.4531 NDCG@10: 0.2467
-[03:45:15] [Epoch 41/200] Avg loss: 0.4822 | Avg P(pos): 0.6031
-[03:45:16] [Epoch 42/200] Avg loss: 0.4795 | Avg P(pos): 0.6103
-[03:45:18] [Epoch 43/200] Avg loss: 0.4783 | Avg P(pos): 0.6126
-[03:45:20] [Epoch 44/200] Avg loss: 0.4743 | Avg P(pos): 0.6159
-[03:45:22] [Epoch 45/200] Avg loss: 0.4701 | Avg P(pos): 0.6179
-[03:45:23] [Epoch 46/200] Avg loss: 0.4662 | Avg P(pos): 0.6200
-[03:45:25] [Epoch 47/200] Avg loss: 0.4612 | Avg P(pos): 0.6214
-[03:45:27] [Epoch 48/200] Avg loss: 0.4598 | Avg P(pos): 0.6248
-[03:45:29] [Epoch 49/200] Avg loss: 0.4544 | Avg P(pos): 0.6241
-[03:45:31] [Epoch 50/200] Avg loss: 0.4511 | Avg P(pos): 0.6264
-[03:45:32] [Epoch 51/200] Avg loss: 0.4465 | Avg P(pos): 0.6273
-[03:45:34] [Epoch 52/200] Avg loss: 0.4454 | Avg P(pos): 0.6259
-[03:45:36] [Epoch 53/200] Avg loss: 0.4446 | Avg P(pos): 0.6252
-[03:45:38] [Epoch 54/200] Avg loss: 0.4406 | Avg P(pos): 0.6239
-[03:45:40] [Epoch 55/200] Avg loss: 0.4381 | Avg P(pos): 0.6264
-[03:45:41] [Epoch 56/200] Avg loss: 0.4372 | Avg P(pos): 0.6241
-[03:45:43] [Epoch 57/200] Avg loss: 0.4364 | Avg P(pos): 0.6225
-[03:45:45] [Epoch 58/200] Avg loss: 0.4329 | Avg P(pos): 0.6224
-[03:45:47] [Epoch 59/200] Avg loss: 0.4315 | Avg P(pos): 0.6213
-[03:45:57] [Epoch 60/200] Avg loss: 0.4308 | Avg P(pos): 0.6201 | HR@10: 0.5460 NDCG@10: 0.3053
-[03:45:59] [Epoch 61/200] Avg loss: 0.4297 | Avg P(pos): 0.6186
-[03:46:01] [Epoch 62/200] Avg loss: 0.4290 | Avg P(pos): 0.6206
-[03:46:02] [Epoch 63/200] Avg loss: 0.4263 | Avg P(pos): 0.6197
-[03:46:04] [Epoch 64/200] Avg loss: 0.4232 | Avg P(pos): 0.6189
-[03:46:06] [Epoch 65/200] Avg loss: 0.4237 | Avg P(pos): 0.6192
-[03:46:08] [Epoch 66/200] Avg loss: 0.4210 | Avg P(pos): 0.6167
-[03:46:09] [Epoch 67/200] Avg loss: 0.4199 | Avg P(pos): 0.6184
-[03:46:11] [Epoch 68/200] Avg loss: 0.4189 | Avg P(pos): 0.6171
-[03:46:13] [Epoch 69/200] Avg loss: 0.4148 | Avg P(pos): 0.6171
-[03:46:15] [Epoch 70/200] Avg loss: 0.4146 | Avg P(pos): 0.6164
-[03:46:16] [Epoch 71/200] Avg loss: 0.4118 | Avg P(pos): 0.6164
-[03:46:18] [Epoch 72/200] Avg loss: 0.4110 | Avg P(pos): 0.6162
-[03:46:20] [Epoch 73/200] Avg loss: 0.4086 | Avg P(pos): 0.6170
-[03:46:22] [Epoch 74/200] Avg loss: 0.4063 | Avg P(pos): 0.6178
-[03:46:23] [Epoch 75/200] Avg loss: 0.4057 | Avg P(pos): 0.6164
-[03:46:25] [Epoch 76/200] Avg loss: 0.4027 | Avg P(pos): 0.6200
-[03:46:27] [Epoch 77/200] Avg loss: 0.3983 | Avg P(pos): 0.6182
-[03:46:28] [Epoch 78/200] Avg loss: 0.3994 | Avg P(pos): 0.6199
-[03:46:30] [Epoch 79/200] Avg loss: 0.3962 | Avg P(pos): 0.6235
-[03:46:41] [Epoch 80/200] Avg loss: 0.3944 | Avg P(pos): 0.6224 | HR@10: 0.6262 NDCG@10: 0.3655
-[03:46:43] [Epoch 81/200] Avg loss: 0.3909 | Avg P(pos): 0.6276
-[03:46:44] [Epoch 82/200] Avg loss: 0.3904 | Avg P(pos): 0.6249
-[03:46:46] [Epoch 83/200] Avg loss: 0.3901 | Avg P(pos): 0.6240
-[03:46:48] [Epoch 84/200] Avg loss: 0.3875 | Avg P(pos): 0.6262
-[03:46:50] [Epoch 85/200] Avg loss: 0.3864 | Avg P(pos): 0.6311
-[03:46:51] [Epoch 86/200] Avg loss: 0.3828 | Avg P(pos): 0.6366
-[03:46:53] [Epoch 87/200] Avg loss: 0.3836 | Avg P(pos): 0.6344
-[03:46:55] [Epoch 88/200] Avg loss: 0.3820 | Avg P(pos): 0.6364
-[03:46:57] [Epoch 89/200] Avg loss: 0.3786 | Avg P(pos): 0.6399
-[03:46:59] [Epoch 90/200] Avg loss: 0.3756 | Avg P(pos): 0.6396
-[03:47:00] [Epoch 91/200] Avg loss: 0.3766 | Avg P(pos): 0.6412
-[03:47:02] [Epoch 92/200] Avg loss: 0.3749 | Avg P(pos): 0.6472
-[03:47:04] [Epoch 93/200] Avg loss: 0.3713 | Avg P(pos): 0.6530
-[03:47:06] [Epoch 94/200] Avg loss: 0.3708 | Avg P(pos): 0.6512
-[03:47:07] [Epoch 95/200] Avg loss: 0.3711 | Avg P(pos): 0.6534
-[03:47:09] [Epoch 96/200] Avg loss: 0.3678 | Avg P(pos): 0.6569
-[03:47:11] [Epoch 97/200] Avg loss: 0.3660 | Avg P(pos): 0.6559
-[03:47:13] [Epoch 98/200] Avg loss: 0.3662 | Avg P(pos): 0.6547
-[03:47:15] [Epoch 99/200] Avg loss: 0.3647 | Avg P(pos): 0.6609
-[03:47:25] [Epoch 100/200] Avg loss: 0.3601 | Avg P(pos): 0.6610 | HR@10: 0.6813 NDCG@10: 0.4119
-[03:47:27] [Epoch 101/200] Avg loss: 0.3607 | Avg P(pos): 0.6640
-[03:47:28] [Epoch 102/200] Avg loss: 0.3579 | Avg P(pos): 0.6635
-[03:47:30] [Epoch 103/200] Avg loss: 0.3597 | Avg P(pos): 0.6611
-[03:47:32] [Epoch 104/200] Avg loss: 0.3563 | Avg P(pos): 0.6660
-[03:47:34] [Epoch 105/200] Avg loss: 0.3555 | Avg P(pos): 0.6672
-[03:47:36] [Epoch 106/200] Avg loss: 0.3546 | Avg P(pos): 0.6652
-[03:47:37] [Epoch 107/200] Avg loss: 0.3511 | Avg P(pos): 0.6660
-[03:47:39] [Epoch 108/200] Avg loss: 0.3515 | Avg P(pos): 0.6670
-[03:47:41] [Epoch 109/200] Avg loss: 0.3495 | Avg P(pos): 0.6682
-[03:47:43] [Epoch 110/200] Avg loss: 0.3474 | Avg P(pos): 0.6723
-[03:47:44] [Epoch 111/200] Avg loss: 0.3484 | Avg P(pos): 0.6699
-[03:47:46] [Epoch 112/200] Avg loss: 0.3445 | Avg P(pos): 0.6701
-[03:47:48] [Epoch 113/200] Avg loss: 0.3439 | Avg P(pos): 0.6775
-[03:47:50] [Epoch 114/200] Avg loss: 0.3419 | Avg P(pos): 0.6755
-[03:47:52] [Epoch 115/200] Avg loss: 0.3406 | Avg P(pos): 0.6717
-[03:47:53] [Epoch 116/200] Avg loss: 0.3423 | Avg P(pos): 0.6726
-[03:47:55] [Epoch 117/200] Avg loss: 0.3379 | Avg P(pos): 0.6744
-[03:47:57] [Epoch 118/200] Avg loss: 0.3402 | Avg P(pos): 0.6734
-[03:47:59] [Epoch 119/200] Avg loss: 0.3357 | Avg P(pos): 0.6736
-[03:48:09] [Epoch 120/200] Avg loss: 0.3335 | Avg P(pos): 0.6756 | HR@10: 0.7205 NDCG@10: 0.4456
-[03:48:11] [Epoch 121/200] Avg loss: 0.3329 | Avg P(pos): 0.6708
-[03:48:13] [Epoch 122/200] Avg loss: 0.3323 | Avg P(pos): 0.6757
-[03:48:15] [Epoch 123/200] Avg loss: 0.3319 | Avg P(pos): 0.6785
-[03:48:16] [Epoch 124/200] Avg loss: 0.3332 | Avg P(pos): 0.6746
-[03:48:18] [Epoch 125/200] Avg loss: 0.3302 | Avg P(pos): 0.6797
-[03:48:20] [Epoch 126/200] Avg loss: 0.3296 | Avg P(pos): 0.6755
-[03:48:22] [Epoch 127/200] Avg loss: 0.3296 | Avg P(pos): 0.6792
-[03:48:23] [Epoch 128/200] Avg loss: 0.3269 | Avg P(pos): 0.6781
-[03:48:25] [Epoch 129/200] Avg loss: 0.3269 | Avg P(pos): 0.6778
-[03:48:27] [Epoch 130/200] Avg loss: 0.3251 | Avg P(pos): 0.6815
-[03:48:29] [Epoch 131/200] Avg loss: 0.3245 | Avg P(pos): 0.6813
-[03:48:30] [Epoch 132/200] Avg loss: 0.3226 | Avg P(pos): 0.6825
-[03:48:32] [Epoch 133/200] Avg loss: 0.3215 | Avg P(pos): 0.6837
-[03:48:34] [Epoch 134/200] Avg loss: 0.3221 | Avg P(pos): 0.6852
-[03:48:36] [Epoch 135/200] Avg loss: 0.3214 | Avg P(pos): 0.6865
-[03:48:37] [Epoch 136/200] Avg loss: 0.3183 | Avg P(pos): 0.6846
-[03:48:39] [Epoch 137/200] Avg loss: 0.3175 | Avg P(pos): 0.6840
-[03:48:41] [Epoch 138/200] Avg loss: 0.3168 | Avg P(pos): 0.6871
-[03:48:43] [Epoch 139/200] Avg loss: 0.3141 | Avg P(pos): 0.6908
-[03:48:53] [Epoch 140/200] Avg loss: 0.3159 | Avg P(pos): 0.6866 | HR@10: 0.7474 NDCG@10: 0.4696
-[03:48:55] [Epoch 141/200] Avg loss: 0.3122 | Avg P(pos): 0.6878
-[03:48:57] [Epoch 142/200] Avg loss: 0.3143 | Avg P(pos): 0.6860
-[03:48:59] [Epoch 143/200] Avg loss: 0.3111 | Avg P(pos): 0.6886
-[03:49:00] [Epoch 144/200] Avg loss: 0.3106 | Avg P(pos): 0.6895
-[03:49:02] [Epoch 145/200] Avg loss: 0.3088 | Avg P(pos): 0.6949
-[03:49:04] [Epoch 146/200] Avg loss: 0.3090 | Avg P(pos): 0.6907
-[03:49:06] [Epoch 147/200] Avg loss: 0.3084 | Avg P(pos): 0.6943
-[03:49:07] [Epoch 148/200] Avg loss: 0.3085 | Avg P(pos): 0.6949
-[03:49:09] [Epoch 149/200] Avg loss: 0.3113 | Avg P(pos): 0.6925
-[03:49:11] [Epoch 150/200] Avg loss: 0.3093 | Avg P(pos): 0.6912
-[03:49:13] [Epoch 151/200] Avg loss: 0.3048 | Avg P(pos): 0.6955
-[03:49:15] [Epoch 152/200] Avg loss: 0.3027 | Avg P(pos): 0.6991
-[03:49:16] [Epoch 153/200] Avg loss: 0.3054 | Avg P(pos): 0.6992
-[03:49:18] [Epoch 154/200] Avg loss: 0.3035 | Avg P(pos): 0.7007
-[03:49:20] [Epoch 155/200] Avg loss: 0.3039 | Avg P(pos): 0.7009
-[03:49:22] [Epoch 156/200] Avg loss: 0.3031 | Avg P(pos): 0.7022
-[03:49:23] [Epoch 157/200] Avg loss: 0.3011 | Avg P(pos): 0.7038
-[03:49:25] [Epoch 158/200] Avg loss: 0.3012 | Avg P(pos): 0.7061
-[03:49:27] [Epoch 159/200] Avg loss: 0.3005 | Avg P(pos): 0.7047
-[03:49:37] [Epoch 160/200] Avg loss: 0.2994 | Avg P(pos): 0.7076 | HR@10: 0.7692 NDCG@10: 0.4990
-[03:49:39] [Epoch 161/200] Avg loss: 0.2983 | Avg P(pos): 0.7120
-[03:49:41] [Epoch 162/200] Avg loss: 0.2965 | Avg P(pos): 0.7126
-[03:49:43] [Epoch 163/200] Avg loss: 0.2994 | Avg P(pos): 0.7097
-[03:49:44] [Epoch 164/200] Avg loss: 0.2962 | Avg P(pos): 0.7102
-[03:49:46] [Epoch 165/200] Avg loss: 0.2980 | Avg P(pos): 0.7112
-[03:49:48] [Epoch 166/200] Avg loss: 0.2983 | Avg P(pos): 0.7108
-[03:49:50] [Epoch 167/200] Avg loss: 0.2972 | Avg P(pos): 0.7121
-[03:49:51] [Epoch 168/200] Avg loss: 0.2965 | Avg P(pos): 0.7108
-[03:49:53] [Epoch 169/200] Avg loss: 0.2953 | Avg P(pos): 0.7115
-[03:49:55] [Epoch 170/200] Avg loss: 0.2959 | Avg P(pos): 0.7091
-[03:49:57] [Epoch 171/200] Avg loss: 0.2915 | Avg P(pos): 0.7175
-[03:49:58] [Epoch 172/200] Avg loss: 0.2952 | Avg P(pos): 0.7188
-[03:50:00] [Epoch 173/200] Avg loss: 0.2936 | Avg P(pos): 0.7137
-[03:50:02] [Epoch 174/200] Avg loss: 0.2939 | Avg P(pos): 0.7136
-[03:50:04] [Epoch 175/200] Avg loss: 0.2931 | Avg P(pos): 0.7146
-[03:50:06] [Epoch 176/200] Avg loss: 0.2907 | Avg P(pos): 0.7222
-[03:50:07] [Epoch 177/200] Avg loss: 0.2921 | Avg P(pos): 0.7170
-[03:50:09] [Epoch 178/200] Avg loss: 0.2886 | Avg P(pos): 0.7187
-[03:50:11] [Epoch 179/200] Avg loss: 0.2885 | Avg P(pos): 0.7206
-[03:50:21] [Epoch 180/200] Avg loss: 0.2884 | Avg P(pos): 0.7205 | HR@10: 0.7825 NDCG@10: 0.5159
-[03:50:23] [Epoch 181/200] Avg loss: 0.2883 | Avg P(pos): 0.7228
-[03:50:25] [Epoch 182/200] Avg loss: 0.2887 | Avg P(pos): 0.7203
-[03:50:27] [Epoch 183/200] Avg loss: 0.2875 | Avg P(pos): 0.7240
-[03:50:29] [Epoch 184/200] Avg loss: 0.2868 | Avg P(pos): 0.7270
-[03:50:30] [Epoch 185/200] Avg loss: 0.2863 | Avg P(pos): 0.7285
-[03:50:32] [Epoch 186/200] Avg loss: 0.2874 | Avg P(pos): 0.7262
-[03:50:34] [Epoch 187/200] Avg loss: 0.2852 | Avg P(pos): 0.7327
-[03:50:36] [Epoch 188/200] Avg loss: 0.2862 | Avg P(pos): 0.7334
-[03:50:37] [Epoch 189/200] Avg loss: 0.2856 | Avg P(pos): 0.7299
-[03:50:39] [Epoch 190/200] Avg loss: 0.2864 | Avg P(pos): 0.7323
-[03:50:41] [Epoch 191/200] Avg loss: 0.2851 | Avg P(pos): 0.7316
-[03:50:43] [Epoch 192/200] Avg loss: 0.2824 | Avg P(pos): 0.7328
-[03:50:44] [Epoch 193/200] Avg loss: 0.2811 | Avg P(pos): 0.7339
-[03:50:46] [Epoch 194/200] Avg loss: 0.2824 | Avg P(pos): 0.7327
-[03:50:48] [Epoch 195/200] Avg loss: 0.2822 | Avg P(pos): 0.7326
-[03:50:50] [Epoch 196/200] Avg loss: 0.2829 | Avg P(pos): 0.7358
-[03:50:52] [Epoch 197/200] Avg loss: 0.2791 | Avg P(pos): 0.7393
-[03:50:53] [Epoch 198/200] Avg loss: 0.2798 | Avg P(pos): 0.7368
-[03:50:55] [Epoch 199/200] Avg loss: 0.2816 | Avg P(pos): 0.7367
-[03:51:06] [Epoch 200/200] Avg loss: 0.2812 | Avg P(pos): 0.7374 | HR@10: 0.7886 NDCG@10: 0.5316
-[03:51:15] [Epochs 200] Test metrics: HR@10: 0.7636 NDCG@10: 0.5105
+[13:56:51] [Epoch 1/200] Avg loss: 2.5824 | Avg P(pos): 0.5341
+[13:56:53] [Epoch 2/200] Avg loss: 1.7652 | Avg P(pos): 0.5951
+[13:56:55] [Epoch 3/200] Avg loss: 1.2478 | Avg P(pos): 0.6069
+[13:56:56] [Epoch 4/200] Avg loss: 0.9600 | Avg P(pos): 0.6135
+[13:56:58] [Epoch 5/200] Avg loss: 0.8024 | Avg P(pos): 0.6183
+[13:57:00] [Epoch 6/200] Avg loss: 0.7115 | Avg P(pos): 0.6228
+[13:57:02] [Epoch 7/200] Avg loss: 0.6615 | Avg P(pos): 0.6238
+[13:57:04] [Epoch 8/200] Avg loss: 0.6317 | Avg P(pos): 0.6254
+[13:57:06] [Epoch 9/200] Avg loss: 0.6145 | Avg P(pos): 0.6248
+[13:57:07] [Epoch 10/200] Avg loss: 0.5944 | Avg P(pos): 0.6262
+[13:57:09] [Epoch 11/200] Avg loss: 0.5846 | Avg P(pos): 0.6215
+[13:57:11] [Epoch 12/200] Avg loss: 0.5711 | Avg P(pos): 0.6207
+[13:57:13] [Epoch 13/200] Avg loss: 0.5625 | Avg P(pos): 0.6182
+[13:57:15] [Epoch 14/200] Avg loss: 0.5546 | Avg P(pos): 0.6144
+[13:57:17] [Epoch 15/200] Avg loss: 0.5443 | Avg P(pos): 0.6139
+[13:57:19] [Epoch 16/200] Avg loss: 0.5357 | Avg P(pos): 0.6145
+[13:57:21] [Epoch 17/200] Avg loss: 0.5311 | Avg P(pos): 0.6144
+[13:57:23] [Epoch 18/200] Avg loss: 0.5224 | Avg P(pos): 0.6179
+[13:57:25] [Epoch 19/200] Avg loss: 0.5197 | Avg P(pos): 0.6178
+[13:57:35] [Epoch 20/200] Avg loss: 0.5169 | Avg P(pos): 0.6195 | HR@10: 0.4391 NDCG@10: 0.2410
+[13:57:37] [Epoch 21/200] Avg loss: 0.5137 | Avg P(pos): 0.6277
+[13:57:39] [Epoch 22/200] Avg loss: 0.5116 | Avg P(pos): 0.6388
+[13:57:41] [Epoch 23/200] Avg loss: 0.5087 | Avg P(pos): 0.6489
+[13:57:42] [Epoch 24/200] Avg loss: 0.5061 | Avg P(pos): 0.6527
+[13:57:44] [Epoch 25/200] Avg loss: 0.5046 | Avg P(pos): 0.6607
+[13:57:46] [Epoch 26/200] Avg loss: 0.5037 | Avg P(pos): 0.6546
+[13:57:48] [Epoch 27/200] Avg loss: 0.5019 | Avg P(pos): 0.6380
+[13:57:49] [Epoch 28/200] Avg loss: 0.4993 | Avg P(pos): 0.6352
+[13:57:51] [Epoch 29/200] Avg loss: 0.4992 | Avg P(pos): 0.6291
+[13:57:53] [Epoch 30/200] Avg loss: 0.4968 | Avg P(pos): 0.6296
+[13:57:55] [Epoch 31/200] Avg loss: 0.4957 | Avg P(pos): 0.6299
+[13:57:56] [Epoch 32/200] Avg loss: 0.4949 | Avg P(pos): 0.6329
+[13:57:58] [Epoch 33/200] Avg loss: 0.4942 | Avg P(pos): 0.6346
+[13:58:00] [Epoch 34/200] Avg loss: 0.4903 | Avg P(pos): 0.6361
+[13:58:02] [Epoch 35/200] Avg loss: 0.4900 | Avg P(pos): 0.6353
+[13:58:03] [Epoch 36/200] Avg loss: 0.4884 | Avg P(pos): 0.6364
+[13:58:05] [Epoch 37/200] Avg loss: 0.4867 | Avg P(pos): 0.6386
+[13:58:07] [Epoch 38/200] Avg loss: 0.4804 | Avg P(pos): 0.6441
+[13:58:09] [Epoch 39/200] Avg loss: 0.4828 | Avg P(pos): 0.6406
+[13:58:19] [Epoch 40/200] Avg loss: 0.4773 | Avg P(pos): 0.6448 | HR@10: 0.4623 NDCG@10: 0.2557
+[13:58:21] [Epoch 41/200] Avg loss: 0.4759 | Avg P(pos): 0.6446
+[13:58:23] [Epoch 42/200] Avg loss: 0.4703 | Avg P(pos): 0.6476
+[13:58:24] [Epoch 43/200] Avg loss: 0.4682 | Avg P(pos): 0.6509
+[13:58:26] [Epoch 44/200] Avg loss: 0.4653 | Avg P(pos): 0.6532
+[13:58:28] [Epoch 45/200] Avg loss: 0.4602 | Avg P(pos): 0.6566
+[13:58:30] [Epoch 46/200] Avg loss: 0.4583 | Avg P(pos): 0.6584
+[13:58:31] [Epoch 47/200] Avg loss: 0.4546 | Avg P(pos): 0.6599
+[13:58:33] [Epoch 48/200] Avg loss: 0.4538 | Avg P(pos): 0.6600
+[13:58:35] [Epoch 49/200] Avg loss: 0.4490 | Avg P(pos): 0.6632
+[13:58:37] [Epoch 50/200] Avg loss: 0.4435 | Avg P(pos): 0.6630
+[13:58:38] [Epoch 51/200] Avg loss: 0.4421 | Avg P(pos): 0.6640
+[13:58:40] [Epoch 52/200] Avg loss: 0.4392 | Avg P(pos): 0.6667
+[13:58:42] [Epoch 53/200] Avg loss: 0.4347 | Avg P(pos): 0.6689
+[13:58:44] [Epoch 54/200] Avg loss: 0.4361 | Avg P(pos): 0.6686
+[13:58:46] [Epoch 55/200] Avg loss: 0.4335 | Avg P(pos): 0.6713
+[13:58:47] [Epoch 56/200] Avg loss: 0.4304 | Avg P(pos): 0.6710
+[13:58:49] [Epoch 57/200] Avg loss: 0.4257 | Avg P(pos): 0.6726
+[13:58:51] [Epoch 58/200] Avg loss: 0.4263 | Avg P(pos): 0.6709
+[13:58:53] [Epoch 59/200] Avg loss: 0.4224 | Avg P(pos): 0.6728
+[13:59:03] [Epoch 60/200] Avg loss: 0.4228 | Avg P(pos): 0.6717 | HR@10: 0.5616 NDCG@10: 0.3209
+[13:59:05] [Epoch 61/200] Avg loss: 0.4203 | Avg P(pos): 0.6698
+[13:59:07] [Epoch 62/200] Avg loss: 0.4190 | Avg P(pos): 0.6690
+[13:59:08] [Epoch 63/200] Avg loss: 0.4151 | Avg P(pos): 0.6702
+[13:59:10] [Epoch 64/200] Avg loss: 0.4129 | Avg P(pos): 0.6696
+[13:59:12] [Epoch 65/200] Avg loss: 0.4116 | Avg P(pos): 0.6659
+[13:59:14] [Epoch 66/200] Avg loss: 0.4089 | Avg P(pos): 0.6651
+[13:59:15] [Epoch 67/200] Avg loss: 0.4059 | Avg P(pos): 0.6622
+[13:59:17] [Epoch 68/200] Avg loss: 0.4042 | Avg P(pos): 0.6580
+[13:59:19] [Epoch 69/200] Avg loss: 0.4003 | Avg P(pos): 0.6587
+[13:59:21] [Epoch 70/200] Avg loss: 0.4002 | Avg P(pos): 0.6543
+[13:59:22] [Epoch 71/200] Avg loss: 0.3959 | Avg P(pos): 0.6592
+[13:59:24] [Epoch 72/200] Avg loss: 0.3967 | Avg P(pos): 0.6563
+[13:59:26] [Epoch 73/200] Avg loss: 0.3922 | Avg P(pos): 0.6548
+[13:59:28] [Epoch 74/200] Avg loss: 0.3889 | Avg P(pos): 0.6560
+[13:59:29] [Epoch 75/200] Avg loss: 0.3888 | Avg P(pos): 0.6557
+[13:59:31] [Epoch 76/200] Avg loss: 0.3875 | Avg P(pos): 0.6535
+[13:59:33] [Epoch 77/200] Avg loss: 0.3860 | Avg P(pos): 0.6546
+[13:59:35] [Epoch 78/200] Avg loss: 0.3828 | Avg P(pos): 0.6572
+[13:59:36] [Epoch 79/200] Avg loss: 0.3772 | Avg P(pos): 0.6584
+[13:59:47] [Epoch 80/200] Avg loss: 0.3787 | Avg P(pos): 0.6594 | HR@10: 0.6513 NDCG@10: 0.3895
+[13:59:49] [Epoch 81/200] Avg loss: 0.3768 | Avg P(pos): 0.6583
+[13:59:51] [Epoch 82/200] Avg loss: 0.3731 | Avg P(pos): 0.6598
+[13:59:52] [Epoch 83/200] Avg loss: 0.3739 | Avg P(pos): 0.6586
+[13:59:54] [Epoch 84/200] Avg loss: 0.3688 | Avg P(pos): 0.6601
+[13:59:56] [Epoch 85/200] Avg loss: 0.3670 | Avg P(pos): 0.6620
+[13:59:58] [Epoch 86/200] Avg loss: 0.3669 | Avg P(pos): 0.6579
+[14:00:00] [Epoch 87/200] Avg loss: 0.3654 | Avg P(pos): 0.6630
+[14:00:01] [Epoch 88/200] Avg loss: 0.3609 | Avg P(pos): 0.6615
+[14:00:03] [Epoch 89/200] Avg loss: 0.3609 | Avg P(pos): 0.6632
+[14:00:05] [Epoch 90/200] Avg loss: 0.3610 | Avg P(pos): 0.6630
+[14:00:07] [Epoch 91/200] Avg loss: 0.3584 | Avg P(pos): 0.6634
+[14:00:08] [Epoch 92/200] Avg loss: 0.3573 | Avg P(pos): 0.6677
+[14:00:10] [Epoch 93/200] Avg loss: 0.3564 | Avg P(pos): 0.6663
+[14:00:12] [Epoch 94/200] Avg loss: 0.3535 | Avg P(pos): 0.6652
+[14:00:14] [Epoch 95/200] Avg loss: 0.3510 | Avg P(pos): 0.6672
+[14:00:15] [Epoch 96/200] Avg loss: 0.3499 | Avg P(pos): 0.6680
+[14:00:17] [Epoch 97/200] Avg loss: 0.3482 | Avg P(pos): 0.6674
+[14:00:19] [Epoch 98/200] Avg loss: 0.3468 | Avg P(pos): 0.6705
+[14:00:21] [Epoch 99/200] Avg loss: 0.3441 | Avg P(pos): 0.6721
+[14:00:31] [Epoch 100/200] Avg loss: 0.3452 | Avg P(pos): 0.6703 | HR@10: 0.7048 NDCG@10: 0.4339
+[14:00:33] [Epoch 101/200] Avg loss: 0.3435 | Avg P(pos): 0.6666
+[14:00:35] [Epoch 102/200] Avg loss: 0.3410 | Avg P(pos): 0.6686
+[14:00:37] [Epoch 103/200] Avg loss: 0.3401 | Avg P(pos): 0.6692
+[14:00:39] [Epoch 104/200] Avg loss: 0.3405 | Avg P(pos): 0.6703
+[14:00:41] [Epoch 105/200] Avg loss: 0.3364 | Avg P(pos): 0.6726
+[14:00:43] [Epoch 106/200] Avg loss: 0.3350 | Avg P(pos): 0.6702
+[14:00:45] [Epoch 107/200] Avg loss: 0.3356 | Avg P(pos): 0.6753
+[14:00:47] [Epoch 108/200] Avg loss: 0.3345 | Avg P(pos): 0.6714
+[14:00:48] [Epoch 109/200] Avg loss: 0.3326 | Avg P(pos): 0.6723
+[14:00:50] [Epoch 110/200] Avg loss: 0.3328 | Avg P(pos): 0.6729
+[14:00:52] [Epoch 111/200] Avg loss: 0.3283 | Avg P(pos): 0.6729
+[14:00:54] [Epoch 112/200] Avg loss: 0.3284 | Avg P(pos): 0.6729
+[14:00:55] [Epoch 113/200] Avg loss: 0.3283 | Avg P(pos): 0.6763
+[14:00:57] [Epoch 114/200] Avg loss: 0.3285 | Avg P(pos): 0.6739
+[14:00:59] [Epoch 115/200] Avg loss: 0.3233 | Avg P(pos): 0.6774
+[14:01:01] [Epoch 116/200] Avg loss: 0.3250 | Avg P(pos): 0.6738
+[14:01:02] [Epoch 117/200] Avg loss: 0.3211 | Avg P(pos): 0.6774
+[14:01:04] [Epoch 118/200] Avg loss: 0.3227 | Avg P(pos): 0.6778
+[14:01:06] [Epoch 119/200] Avg loss: 0.3202 | Avg P(pos): 0.6798
+[14:01:17] [Epoch 120/200] Avg loss: 0.3219 | Avg P(pos): 0.6806 | HR@10: 0.7439 NDCG@10: 0.4697
+[14:01:19] [Epoch 121/200] Avg loss: 0.3201 | Avg P(pos): 0.6827
+[14:01:21] [Epoch 122/200] Avg loss: 0.3185 | Avg P(pos): 0.6847
+[14:01:23] [Epoch 123/200] Avg loss: 0.3173 | Avg P(pos): 0.6833
+[14:01:25] [Epoch 124/200] Avg loss: 0.3173 | Avg P(pos): 0.6802
+[14:01:26] [Epoch 125/200] Avg loss: 0.3194 | Avg P(pos): 0.6787
+[14:01:28] [Epoch 126/200] Avg loss: 0.3140 | Avg P(pos): 0.6822
+[14:01:30] [Epoch 127/200] Avg loss: 0.3123 | Avg P(pos): 0.6848
+[14:01:32] [Epoch 128/200] Avg loss: 0.3125 | Avg P(pos): 0.6872
+[14:01:33] [Epoch 129/200] Avg loss: 0.3090 | Avg P(pos): 0.6886
+[14:01:35] [Epoch 130/200] Avg loss: 0.3131 | Avg P(pos): 0.6852
+[14:01:37] [Epoch 131/200] Avg loss: 0.3105 | Avg P(pos): 0.6905
+[14:01:39] [Epoch 132/200] Avg loss: 0.3095 | Avg P(pos): 0.6908
+[14:01:41] [Epoch 133/200] Avg loss: 0.3075 | Avg P(pos): 0.6898
+[14:01:43] [Epoch 134/200] Avg loss: 0.3081 | Avg P(pos): 0.6885
+[14:01:44] [Epoch 135/200] Avg loss: 0.3093 | Avg P(pos): 0.6899
+[14:01:46] [Epoch 136/200] Avg loss: 0.3058 | Avg P(pos): 0.6950
+[14:01:48] [Epoch 137/200] Avg loss: 0.3052 | Avg P(pos): 0.6940
+[14:01:50] [Epoch 138/200] Avg loss: 0.3041 | Avg P(pos): 0.6966
+[14:01:52] [Epoch 139/200] Avg loss: 0.3051 | Avg P(pos): 0.6963
+[14:02:02] [Epoch 140/200] Avg loss: 0.3041 | Avg P(pos): 0.6968 | HR@10: 0.7641 NDCG@10: 0.4890
+[14:02:04] [Epoch 141/200] Avg loss: 0.3042 | Avg P(pos): 0.6970
+[14:02:06] [Epoch 142/200] Avg loss: 0.3051 | Avg P(pos): 0.6982
+[14:02:07] [Epoch 143/200] Avg loss: 0.3015 | Avg P(pos): 0.6974
+[14:02:09] [Epoch 144/200] Avg loss: 0.3045 | Avg P(pos): 0.6976
+[14:02:11] [Epoch 145/200] Avg loss: 0.3012 | Avg P(pos): 0.6997
+[14:02:13] [Epoch 146/200] Avg loss: 0.2995 | Avg P(pos): 0.7012
+[14:02:14] [Epoch 147/200] Avg loss: 0.2991 | Avg P(pos): 0.7004
+[14:02:16] [Epoch 148/200] Avg loss: 0.3016 | Avg P(pos): 0.6997
+[14:02:18] [Epoch 149/200] Avg loss: 0.2971 | Avg P(pos): 0.7006
+[14:02:20] [Epoch 150/200] Avg loss: 0.2973 | Avg P(pos): 0.7012
+[14:02:22] [Epoch 151/200] Avg loss: 0.2965 | Avg P(pos): 0.7025
+[14:02:23] [Epoch 152/200] Avg loss: 0.2972 | Avg P(pos): 0.7033
+[14:02:25] [Epoch 153/200] Avg loss: 0.2957 | Avg P(pos): 0.7010
+[14:02:27] [Epoch 154/200] Avg loss: 0.2954 | Avg P(pos): 0.7033
+[14:02:29] [Epoch 155/200] Avg loss: 0.2933 | Avg P(pos): 0.7021
+[14:02:31] [Epoch 156/200] Avg loss: 0.2951 | Avg P(pos): 0.7026
+[14:02:32] [Epoch 157/200] Avg loss: 0.2940 | Avg P(pos): 0.7053
+[14:02:34] [Epoch 158/200] Avg loss: 0.2932 | Avg P(pos): 0.7050
+[14:02:36] [Epoch 159/200] Avg loss: 0.2923 | Avg P(pos): 0.7038
+[14:02:48] [Epoch 160/200] Avg loss: 0.2957 | Avg P(pos): 0.7060 | HR@10: 0.7720 NDCG@10: 0.5051
+[14:02:50] [Epoch 161/200] Avg loss: 0.2937 | Avg P(pos): 0.7002
+[14:02:52] [Epoch 162/200] Avg loss: 0.2906 | Avg P(pos): 0.7049
+[14:02:54] [Epoch 163/200] Avg loss: 0.2902 | Avg P(pos): 0.7071
+[14:02:56] [Epoch 164/200] Avg loss: 0.2900 | Avg P(pos): 0.7057
+[14:02:58] [Epoch 165/200] Avg loss: 0.2897 | Avg P(pos): 0.7090
+[14:03:00] [Epoch 166/200] Avg loss: 0.2915 | Avg P(pos): 0.7096
+[14:03:02] [Epoch 167/200] Avg loss: 0.2912 | Avg P(pos): 0.7103
+[14:03:04] [Epoch 168/200] Avg loss: 0.2885 | Avg P(pos): 0.7093
+[14:03:06] [Epoch 169/200] Avg loss: 0.2883 | Avg P(pos): 0.7121
+[14:03:08] [Epoch 170/200] Avg loss: 0.2887 | Avg P(pos): 0.7134
+[14:03:10] [Epoch 171/200] Avg loss: 0.2860 | Avg P(pos): 0.7152
+[14:03:12] [Epoch 172/200] Avg loss: 0.2903 | Avg P(pos): 0.7104
+[14:03:14] [Epoch 173/200] Avg loss: 0.2888 | Avg P(pos): 0.7136
+[14:03:15] [Epoch 174/200] Avg loss: 0.2855 | Avg P(pos): 0.7143
+[14:03:17] [Epoch 175/200] Avg loss: 0.2855 | Avg P(pos): 0.7135
+[14:03:19] [Epoch 176/200] Avg loss: 0.2863 | Avg P(pos): 0.7115
+[14:03:21] [Epoch 177/200] Avg loss: 0.2832 | Avg P(pos): 0.7136
+[14:03:23] [Epoch 178/200] Avg loss: 0.2873 | Avg P(pos): 0.7163
+[14:03:25] [Epoch 179/200] Avg loss: 0.2832 | Avg P(pos): 0.7183
+[14:03:36] [Epoch 180/200] Avg loss: 0.2861 | Avg P(pos): 0.7138 | HR@10: 0.7844 NDCG@10: 0.5205
+[14:03:38] [Epoch 181/200] Avg loss: 0.2832 | Avg P(pos): 0.7227
+[14:03:40] [Epoch 182/200] Avg loss: 0.2838 | Avg P(pos): 0.7217
+[14:03:42] [Epoch 183/200] Avg loss: 0.2815 | Avg P(pos): 0.7212
+[14:03:44] [Epoch 184/200] Avg loss: 0.2828 | Avg P(pos): 0.7212
+[14:03:46] [Epoch 185/200] Avg loss: 0.2829 | Avg P(pos): 0.7194
+[14:03:48] [Epoch 186/200] Avg loss: 0.2796 | Avg P(pos): 0.7228
+[14:03:50] [Epoch 187/200] Avg loss: 0.2812 | Avg P(pos): 0.7198
+[14:03:52] [Epoch 188/200] Avg loss: 0.2793 | Avg P(pos): 0.7193
+[14:03:54] [Epoch 189/200] Avg loss: 0.2788 | Avg P(pos): 0.7209
+[14:03:56] [Epoch 190/200] Avg loss: 0.2805 | Avg P(pos): 0.7234
+[14:03:58] [Epoch 191/200] Avg loss: 0.2809 | Avg P(pos): 0.7247
+[14:04:00] [Epoch 192/200] Avg loss: 0.2824 | Avg P(pos): 0.7249
+[14:04:02] [Epoch 193/200] Avg loss: 0.2776 | Avg P(pos): 0.7258
+[14:04:04] [Epoch 194/200] Avg loss: 0.2799 | Avg P(pos): 0.7259
+[14:04:06] [Epoch 195/200] Avg loss: 0.2782 | Avg P(pos): 0.7295
+[14:04:08] [Epoch 196/200] Avg loss: 0.2804 | Avg P(pos): 0.7287
+[14:04:10] [Epoch 197/200] Avg loss: 0.2777 | Avg P(pos): 0.7293
+[14:04:12] [Epoch 198/200] Avg loss: 0.2781 | Avg P(pos): 0.7325
+[14:04:14] [Epoch 199/200] Avg loss: 0.2779 | Avg P(pos): 0.7284
+[14:04:25] [Epoch 200/200] Avg loss: 0.2776 | Avg P(pos): 0.7325 | HR@10: 0.7932 NDCG@10: 0.5309
+[14:04:34] [Epochs 200] Test metrics: HR@10: 0.7603 NDCG@10: 0.5055
 
   Prediction demo (user 1):
     Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
     Ground truth:    Pocahontas (1995)
     Model top-10:
        1. Lion King, The (1994)
-       2. Lady and the Tramp (1955)
-       3. Sleeping Beauty (1959)
-       4. Fantasia (1940)
-       5. Little Mermaid, The (1989)
-       6. Anastasia (1997)
-       7. Nightmare Before Christmas, The (1993)
-       8. Groundhog Day (1993)
-       9. Muppet Christmas Carol, The (1992)
-      10. Jungle Book, The (1967)
+       2. Nightmare Before Christmas, The (1993)
+       3. Mask, The (1994)
+       4. Babe (1995)
+       5. Fantasia (1940)
+       6. Groundhog Day (1993)
+       7. Jungle Book, The (1967)
+       8. Men in Black (1997)
+       9. Anastasia (1997)
+      10. South Park: Bigger, Longer and Uncut (1999)
 ```
 
 ### Takeaway

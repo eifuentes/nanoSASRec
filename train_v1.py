@@ -452,9 +452,14 @@ def main():
 
     # Training loop
     for epoch in range(args.epochs):
+        # enter train mode for model to update model params
         model.train()
+        # initialize epoch loss to log every iteration
         epoch_loss = 0.0
-        for batch in range(batches_per_epoch):
+        # initialize average batch positive probability to log every iteration
+        avg_pos_prob = 0.0
+        # iterate over batches per epoch and update model parameters given loss
+        for batch_idx in range(batches_per_epoch):
             # Zero out last loops gradient accumulations
             optimizer.zero_grad()
 
@@ -479,6 +484,8 @@ def main():
                 pos_seq_scores.sigmoid().clamp(eps, 1 - eps),
                 neg_seq_scores.sigmoid().clamp(eps, 1 - eps),
             )
+            # accumulate average positive probability per batch
+            avg_pos_prob += pos_seq_probas.mean().item()
 
             # Calculate binary cross entropy (BCE) loss
             # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
@@ -519,12 +526,19 @@ def main():
             # log metrics and loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
-                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f} | HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
+                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
+                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f} | "
+                f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
             )
         else:
             # log loss so far
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f}")
+            print(
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
+                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
+                f"Avg P(pos): {avg_pos_prob / batches_per_epoch:.4f}"
+            )
 
     # test set evaluation
     model.eval()

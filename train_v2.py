@@ -480,8 +480,11 @@ def main():
 
     # Training loop
     for epoch in range(args.epochs):
+        # enter train mode for model to update model params
         model.train()
+        # initialize epoch loss to log every iteration
         epoch_loss = 0.0
+        # iterate over batches per epoch and update model parameters given loss
         for batch_idx in range(batches_per_epoch):
             # Zero out last loops gradient accumulations
             optimizer.zero_grad()

@@ -543,6 +543,11 @@ def main():
             # and average over num_negatives if more than 1 is provided
             # NOTE: `t` calibration parameter (0 < t < 1) that downweights positive signal
             # to correct for undersampling negatives relative to the full catalog
+            # TODO: Our implementation uses `t` as a direct loss weight, which approximates
+            # the paper's sigmoid^beta formulation. See Equation 28 in Petrov & Macdonald
+            # (ACM TORS 2025, doi:10.1145/3699521) for the exact reparameterization:
+            #   beta = alpha * (t * (1 - 1/alpha) + 1/alpha)
+            #   where alpha = num_negs / (num_items - 1)
             pos_scores_seq = args.t * pos_probas_seq.log().neg()  # size(batch_size, seq_len)
             neg_scores_seq = (1 - args.t) * (1 - neg_probas_seq).log().neg().mean(dim=-1)  # size(batch_size, seq_len)
             loss = pos_scores_seq + neg_scores_seq

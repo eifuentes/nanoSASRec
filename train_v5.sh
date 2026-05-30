@@ -29,7 +29,7 @@ echo "============================================================"
 # Step 0: Download and preprocess
 echo ""
 echo "[Step 0/3] Preprocessing $DATASET..."
-uv run python data.py --dataset "$DATASET"
+uv run python -u data.py --dataset "$DATASET"
 
 for BLOCKS in 2 4 6; do
     LOG_FILE="$LOG_DIR/${DATASET}_blocks${BLOCKS}.log"
@@ -39,7 +39,7 @@ for BLOCKS in 2 4 6; do
     echo "  Logging to: $LOG_FILE"
     echo "============================================================"
 
-    uv run python train_v4.py \
+    uv run python -u train_v4.py \
         --dataset "$DATASET" \
         --device "$DEVICE" \
         --dim "$DIM" \

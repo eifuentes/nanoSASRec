@@ -752,3 +752,259 @@ Estimate batches per epoch: 47
 **Why NDCG was lower than v2:** v3's NDCG@10 (0.53) came in below v2's (0.57) despite matching on HR. gBCE's calibrated probabilities spread scores more evenly, which helps avoid overconfidence but doesn't force the hard competition that softmax creates. Sampled softmax explicitly makes items fight for probability mass, producing sharper separation at the top of the ranking. gBCE trades some ranking sharpness for better-calibrated probability estimates. Which matters more depends on the application: if you need probability estimates (e.g., multiplying P(purchase) by item price for revenue prediction), gBCE wins. If you only care about ranking, SSM's sharper top-K separation gives better NDCG.
 
 **What we learned about the loss function progression:** After three versions with identical architecture, the conclusion is clear: SASRec's performance issues were never about the architecture. v1's BCE overconfidence, v2's softmax fix, v3's calibration approach are all statements about how the training signal is shaped, not about how attention works. The architecture was fine from the start. This matches the central finding of the 2023 research: fix the loss, fix the model.
+
+## v4
+
+### Run 
+
+`uv run python train_v4.py --device mps --epochs 200 --eval-every 20`
+
+### Output
+
+```bash
+➜  nanoSASRec git:(feat--train-v4) ✗ uv run python train_v4.py --device mps --epochs 200 --eval-every 20
+Number Users: 6,040
+Number Items: 3,416
+Dataset Lengths: 6040 6040 6040
+Model parameters: 211,500
+Estimate batches per epoch: 47
+[04:11:36] [Epoch 1/200] Avg loss: 5.3592
+[04:11:38] [Epoch 2/200] Avg loss: 4.7685
+[04:11:40] [Epoch 3/200] Avg loss: 4.7217
+[04:11:41] [Epoch 4/200] Avg loss: 4.7038
+[04:11:43] [Epoch 5/200] Avg loss: 4.7042
+[04:11:45] [Epoch 6/200] Avg loss: 4.6434
+[04:11:46] [Epoch 7/200] Avg loss: 4.5344
+[04:11:48] [Epoch 8/200] Avg loss: 4.4006
+[04:11:50] [Epoch 9/200] Avg loss: 4.2957
+[04:11:52] [Epoch 10/200] Avg loss: 4.1981
+[04:11:53] [Epoch 11/200] Avg loss: 4.0949
+[04:11:55] [Epoch 12/200] Avg loss: 4.0551
+[04:11:57] [Epoch 13/200] Avg loss: 3.9899
+[04:11:58] [Epoch 14/200] Avg loss: 3.9522
+[04:12:00] [Epoch 15/200] Avg loss: 3.8981
+[04:12:02] [Epoch 16/200] Avg loss: 3.8568
+[04:12:04] [Epoch 17/200] Avg loss: 3.7761
+[04:12:05] [Epoch 18/200] Avg loss: 3.7165
+[04:12:07] [Epoch 19/200] Avg loss: 3.6572
+[04:12:16] [Epoch 20/200] Avg loss: 3.6317 | HR@10: 0.7159 NDCG@10: 0.4653
+[04:12:18] [Epoch 21/200] Avg loss: 3.6075
+[04:12:19] [Epoch 22/200] Avg loss: 3.5521
+[04:12:21] [Epoch 23/200] Avg loss: 3.5372
+[04:12:22] [Epoch 24/200] Avg loss: 3.4800
+[04:12:24] [Epoch 25/200] Avg loss: 3.4747
+[04:12:26] [Epoch 26/200] Avg loss: 3.4110
+[04:12:27] [Epoch 27/200] Avg loss: 3.3647
+[04:12:29] [Epoch 28/200] Avg loss: 3.3360
+[04:12:31] [Epoch 29/200] Avg loss: 3.3124
+[04:12:32] [Epoch 30/200] Avg loss: 3.2947
+[04:12:34] [Epoch 31/200] Avg loss: 3.2568
+[04:12:36] [Epoch 32/200] Avg loss: 3.2322
+[04:12:37] [Epoch 33/200] Avg loss: 3.2270
+[04:12:39] [Epoch 34/200] Avg loss: 3.1792
+[04:12:41] [Epoch 35/200] Avg loss: 3.1907
+[04:12:42] [Epoch 36/200] Avg loss: 3.1762
+[04:12:44] [Epoch 37/200] Avg loss: 3.1325
+[04:12:46] [Epoch 38/200] Avg loss: 3.1363
+[04:12:48] [Epoch 39/200] Avg loss: 3.1248
+[04:12:57] [Epoch 40/200] Avg loss: 3.1060 | HR@10: 0.8000 NDCG@10: 0.5704
+[04:12:58] [Epoch 41/200] Avg loss: 3.0919
+[04:13:00] [Epoch 42/200] Avg loss: 3.0852
+[04:13:02] [Epoch 43/200] Avg loss: 3.0430
+[04:13:03] [Epoch 44/200] Avg loss: 3.0656
+[04:13:05] [Epoch 45/200] Avg loss: 3.0397
+[04:13:07] [Epoch 46/200] Avg loss: 3.0288
+[04:13:08] [Epoch 47/200] Avg loss: 3.0376
+[04:13:10] [Epoch 48/200] Avg loss: 2.9918
+[04:13:12] [Epoch 49/200] Avg loss: 2.9866
+[04:13:13] [Epoch 50/200] Avg loss: 3.0086
+[04:13:15] [Epoch 51/200] Avg loss: 2.9958
+[04:13:17] [Epoch 52/200] Avg loss: 2.9761
+[04:13:18] [Epoch 53/200] Avg loss: 2.9684
+[04:13:20] [Epoch 54/200] Avg loss: 2.9499
+[04:13:22] [Epoch 55/200] Avg loss: 2.9557
+[04:13:23] [Epoch 56/200] Avg loss: 2.9315
+[04:13:25] [Epoch 57/200] Avg loss: 2.9517
+[04:13:27] [Epoch 58/200] Avg loss: 2.9167
+[04:13:28] [Epoch 59/200] Avg loss: 2.9286
+[04:13:38] [Epoch 60/200] Avg loss: 2.9207 | HR@10: 0.8238 NDCG@10: 0.6017
+[04:13:39] [Epoch 61/200] Avg loss: 2.9210
+[04:13:41] [Epoch 62/200] Avg loss: 2.9108
+[04:13:43] [Epoch 63/200] Avg loss: 2.8966
+[04:13:45] [Epoch 64/200] Avg loss: 2.9088
+[04:13:46] [Epoch 65/200] Avg loss: 2.8695
+[04:13:48] [Epoch 66/200] Avg loss: 2.8660
+[04:13:50] [Epoch 67/200] Avg loss: 2.8854
+[04:13:51] [Epoch 68/200] Avg loss: 2.8655
+[04:13:53] [Epoch 69/200] Avg loss: 2.8743
+[04:13:55] [Epoch 70/200] Avg loss: 2.8525
+[04:13:56] [Epoch 71/200] Avg loss: 2.8442
+[04:13:58] [Epoch 72/200] Avg loss: 2.8336
+[04:14:00] [Epoch 73/200] Avg loss: 2.8326
+[04:14:02] [Epoch 74/200] Avg loss: 2.8748
+[04:14:03] [Epoch 75/200] Avg loss: 2.8439
+[04:14:05] [Epoch 76/200] Avg loss: 2.8425
+[04:14:07] [Epoch 77/200] Avg loss: 2.8362
+[04:14:08] [Epoch 78/200] Avg loss: 2.8355
+[04:14:10] [Epoch 79/200] Avg loss: 2.7983
+[04:14:19] [Epoch 80/200] Avg loss: 2.8197 | HR@10: 0.8333 NDCG@10: 0.6188
+[04:14:21] [Epoch 81/200] Avg loss: 2.8145
+[04:14:23] [Epoch 82/200] Avg loss: 2.8103
+[04:14:24] [Epoch 83/200] Avg loss: 2.8116
+[04:14:26] [Epoch 84/200] Avg loss: 2.7936
+[04:14:28] [Epoch 85/200] Avg loss: 2.7993
+[04:14:29] [Epoch 86/200] Avg loss: 2.8135
+[04:14:31] [Epoch 87/200] Avg loss: 2.7929
+[04:14:33] [Epoch 88/200] Avg loss: 2.7870
+[04:14:35] [Epoch 89/200] Avg loss: 2.7814
+[04:14:36] [Epoch 90/200] Avg loss: 2.7832
+[04:14:38] [Epoch 91/200] Avg loss: 2.7885
+[04:14:39] [Epoch 92/200] Avg loss: 2.7511
+[04:14:41] [Epoch 93/200] Avg loss: 2.7798
+[04:14:43] [Epoch 94/200] Avg loss: 2.7701
+[04:14:44] [Epoch 95/200] Avg loss: 2.7517
+[04:14:46] [Epoch 96/200] Avg loss: 2.7774
+[04:14:48] [Epoch 97/200] Avg loss: 2.7638
+[04:14:49] [Epoch 98/200] Avg loss: 2.7487
+[04:14:51] [Epoch 99/200] Avg loss: 2.7797
+[04:15:00] [Epoch 100/200] Avg loss: 2.7616 | HR@10: 0.8328 NDCG@10: 0.6227
+[04:15:02] [Epoch 101/200] Avg loss: 2.7560
+[04:15:03] [Epoch 102/200] Avg loss: 2.7317
+[04:15:05] [Epoch 103/200] Avg loss: 2.7567
+[04:15:07] [Epoch 104/200] Avg loss: 2.7393
+[04:15:08] [Epoch 105/200] Avg loss: 2.7337
+[04:15:10] [Epoch 106/200] Avg loss: 2.7339
+[04:15:11] [Epoch 107/200] Avg loss: 2.7415
+[04:15:13] [Epoch 108/200] Avg loss: 2.7553
+[04:15:15] [Epoch 109/200] Avg loss: 2.7417
+[04:15:16] [Epoch 110/200] Avg loss: 2.7369
+[04:15:18] [Epoch 111/200] Avg loss: 2.7173
+[04:15:20] [Epoch 112/200] Avg loss: 2.7348
+[04:15:21] [Epoch 113/200] Avg loss: 2.7217
+[04:15:23] [Epoch 114/200] Avg loss: 2.7308
+[04:15:25] [Epoch 115/200] Avg loss: 2.7405
+[04:15:26] [Epoch 116/200] Avg loss: 2.7039
+[04:15:28] [Epoch 117/200] Avg loss: 2.7304
+[04:15:30] [Epoch 118/200] Avg loss: 2.7106
+[04:15:31] [Epoch 119/200] Avg loss: 2.7125
+[04:15:40] [Epoch 120/200] Avg loss: 2.6962 | HR@10: 0.8351 NDCG@10: 0.6287
+[04:15:42] [Epoch 121/200] Avg loss: 2.7200
+[04:15:44] [Epoch 122/200] Avg loss: 2.7051
+[04:15:45] [Epoch 123/200] Avg loss: 2.6892
+[04:15:47] [Epoch 124/200] Avg loss: 2.6854
+[04:15:49] [Epoch 125/200] Avg loss: 2.6910
+[04:15:50] [Epoch 126/200] Avg loss: 2.7110
+[04:15:52] [Epoch 127/200] Avg loss: 2.6880
+[04:15:54] [Epoch 128/200] Avg loss: 2.7084
+[04:15:55] [Epoch 129/200] Avg loss: 2.7149
+[04:15:57] [Epoch 130/200] Avg loss: 2.6853
+[04:15:59] [Epoch 131/200] Avg loss: 2.6997
+[04:16:00] [Epoch 132/200] Avg loss: 2.6866
+[04:16:02] [Epoch 133/200] Avg loss: 2.6950
+[04:16:04] [Epoch 134/200] Avg loss: 2.6916
+[04:16:05] [Epoch 135/200] Avg loss: 2.6862
+[04:16:07] [Epoch 136/200] Avg loss: 2.6883
+[04:16:08] [Epoch 137/200] Avg loss: 2.6667
+[04:16:10] [Epoch 138/200] Avg loss: 2.6666
+[04:16:12] [Epoch 139/200] Avg loss: 2.6824
+[04:16:21] [Epoch 140/200] Avg loss: 2.6887 | HR@10: 0.8445 NDCG@10: 0.6369
+[04:16:23] [Epoch 141/200] Avg loss: 2.6632
+[04:16:24] [Epoch 142/200] Avg loss: 2.6840
+[04:16:26] [Epoch 143/200] Avg loss: 2.6712
+[04:16:28] [Epoch 144/200] Avg loss: 2.6625
+[04:16:29] [Epoch 145/200] Avg loss: 2.6705
+[04:16:31] [Epoch 146/200] Avg loss: 2.6566
+[04:16:33] [Epoch 147/200] Avg loss: 2.6705
+[04:16:34] [Epoch 148/200] Avg loss: 2.6425
+[04:16:36] [Epoch 149/200] Avg loss: 2.6824
+[04:16:38] [Epoch 150/200] Avg loss: 2.6728
+[04:16:39] [Epoch 151/200] Avg loss: 2.6523
+[04:16:41] [Epoch 152/200] Avg loss: 2.6613
+[04:16:42] [Epoch 153/200] Avg loss: 2.6791
+[04:16:44] [Epoch 154/200] Avg loss: 2.6800
+[04:16:46] [Epoch 155/200] Avg loss: 2.6524
+[04:16:47] [Epoch 156/200] Avg loss: 2.6742
+[04:16:49] [Epoch 157/200] Avg loss: 2.6471
+[04:16:51] [Epoch 158/200] Avg loss: 2.6779
+[04:16:52] [Epoch 159/200] Avg loss: 2.6621
+[04:17:02] [Epoch 160/200] Avg loss: 2.6750 | HR@10: 0.8427 NDCG@10: 0.6351
+[04:17:03] [Epoch 161/200] Avg loss: 2.6567
+[04:17:05] [Epoch 162/200] Avg loss: 2.6699
+[04:17:07] [Epoch 163/200] Avg loss: 2.6468
+[04:17:08] [Epoch 164/200] Avg loss: 2.6459
+[04:17:10] [Epoch 165/200] Avg loss: 2.6596
+[04:17:11] [Epoch 166/200] Avg loss: 2.6680
+[04:17:13] [Epoch 167/200] Avg loss: 2.6481
+[04:17:15] [Epoch 168/200] Avg loss: 2.6372
+[04:17:16] [Epoch 169/200] Avg loss: 2.6552
+[04:17:18] [Epoch 170/200] Avg loss: 2.6481
+[04:17:20] [Epoch 171/200] Avg loss: 2.6321
+[04:17:21] [Epoch 172/200] Avg loss: 2.6534
+[04:17:23] [Epoch 173/200] Avg loss: 2.6634
+[04:17:25] [Epoch 174/200] Avg loss: 2.6294
+[04:17:26] [Epoch 175/200] Avg loss: 2.6438
+[04:17:28] [Epoch 176/200] Avg loss: 2.6438
+[04:17:30] [Epoch 177/200] Avg loss: 2.6488
+[04:17:31] [Epoch 178/200] Avg loss: 2.6298
+[04:17:33] [Epoch 179/200] Avg loss: 2.6139
+[04:17:42] [Epoch 180/200] Avg loss: 2.6373 | HR@10: 0.8455 NDCG@10: 0.6391
+[04:17:44] [Epoch 181/200] Avg loss: 2.6403
+[04:17:46] [Epoch 182/200] Avg loss: 2.6480
+[04:17:47] [Epoch 183/200] Avg loss: 2.6161
+[04:17:49] [Epoch 184/200] Avg loss: 2.6497
+[04:17:50] [Epoch 185/200] Avg loss: 2.6294
+[04:17:52] [Epoch 186/200] Avg loss: 2.6397
+[04:17:54] [Epoch 187/200] Avg loss: 2.6320
+[04:17:55] [Epoch 188/200] Avg loss: 2.6366
+[04:17:57] [Epoch 189/200] Avg loss: 2.6401
+[04:17:59] [Epoch 190/200] Avg loss: 2.6337
+[04:18:00] [Epoch 191/200] Avg loss: 2.6371
+[04:18:02] [Epoch 192/200] Avg loss: 2.6215
+[04:18:04] [Epoch 193/200] Avg loss: 2.6228
+[04:18:05] [Epoch 194/200] Avg loss: 2.6227
+[04:18:07] [Epoch 195/200] Avg loss: 2.6186
+[04:18:09] [Epoch 196/200] Avg loss: 2.6056
+[04:18:10] [Epoch 197/200] Avg loss: 2.6382
+[04:18:12] [Epoch 198/200] Avg loss: 2.6435
+[04:18:14] [Epoch 199/200] Avg loss: 2.6458
+[04:18:23] [Epoch 200/200] Avg loss: 2.6474 | HR@10: 0.8490 NDCG@10: 0.6392
+[04:18:31] [Epochs 200] Test metrics: HR@10: 0.8230 NDCG@10: 0.6225
+
+  Prediction demo (user 1):
+    Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
+    Ground truth:    Pocahontas (1995)
+    Model top-10:
+       1. Lion King, The (1994)
+       2. Prince of Egypt, The (1998)
+       3. Anastasia (1997)
+       4. Pocahontas (1995) <- hit
+       5. Rescuers Down Under, The (1990)
+       6. Little Mermaid, The (1989)
+       7. Babe (1995)
+       8. Parent Trap, The (1998)
+       9. Fantasia 2000 (1999)
+      10. Sword in the Stone, The (1963)
+```
+
+### Takeaway
+
+## v4: Architecture Refinements
+
+**What changed:** Same sampled softmax loss as v2. Five implementation refinements: truncated normal weight init (`std=1/sqrt(d)`), reversed positional embeddings, registered causal mask buffer, attention weight dropout, and configurable FFN. Model also decomposed into shared `sasrec/` package.
+
+**Results on ML-1M (200 epochs, seed=42):**
+
+| Metric | v2 (SSM) | v4 (SSM + refinements) |
+|--------|----------|------------------------|
+| Val HR@10 | 0.7922 | 0.8490 |
+| Val NDCG@10 | 0.5699 | 0.6392 |
+| Test HR@10 | 0.7672 | 0.8230 |
+| Test NDCG@10 | 0.5471 | 0.6225 |
+
+**Why it worked:**
+
+- **Weight init** was the biggest contributor. PyTorch defaults produce dot products with variance ~50 (for dim=50), saturating softmax immediately. Truncated normal with `std=1/sqrt(d)` keeps initial scores near zero. v2 started at loss 18.3; v4 started at 5.4 and reached v2's final HR by epoch 40.
+- **Reversed positions** give the prediction position a consistent embedding (always 0) instead of varying by sequence length. The model learns "how far back" rather than "what absolute slot." (Huang 2025, arxiv: 2504.09596)
+- **Attention dropout** was missing in v1-v3. The original Transformer paper applies dropout on attention weights after softmax, not just on the output. One line, standard practice.
+
+**The lesson:** v1-v3 proved the loss function matters. v4 proves implementation details matter just as much — +7% HR and +14% NDCG from changes that didn't touch the loss or model capacity. D'Ercoli et al. 2025 documented 2-5% swings from these details individually; they compound.

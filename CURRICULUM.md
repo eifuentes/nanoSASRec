@@ -6,10 +6,11 @@ Curriculum walkthrough from v1 to v8.
 
 Here are known differences from the original SASRec implementation.
 
-- **v1 uses Pre-LN** (norm before attention), the original uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models, which is why we start with it - v5+ needs it to scale.
-- **Weight initialization** differs from the original (PyTorch defaults vs Xavier uniform). Affects early training dynamics, shifts final metrics by 1-3%.
+- **Pre-LN normalization** (norm before attention/FFN). The original SASRec uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models (Xiong et al. ICML 2020) and is what all modern implementations use, including HSTU and PinnerFormer.
+- **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Meta's SASRec) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
+- **Reversed positional embeddings** (Huang 2025, arxiv: 2504.09596). The original uses forward indexing; v4+ counts backward from the prediction position so the model learns "how far back" rather than "what absolute slot."
 
-These are intentional choices, not bugs.
+These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
 
 ## v1
 

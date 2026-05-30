@@ -988,8 +988,6 @@ Estimate batches per epoch: 47
 
 ### Takeaway
 
-## v4: Architecture Refinements
-
 **What changed:** Same sampled softmax loss as v2. Five implementation refinements: truncated normal weight init (`std=1/sqrt(d)`), reversed positional embeddings, registered causal mask buffer, attention weight dropout, and configurable FFN. Model also decomposed into shared `sasrec/` package.
 
 **Results on ML-1M (200 epochs, seed=42):**

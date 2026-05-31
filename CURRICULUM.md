@@ -12,6 +12,25 @@ Here are known differences from the original SASRec implementation.
 
 These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
 
+## Reading the Metrics
+
+**Avg loss (Sampled Softmax, v2/v4/v5/v6+):** The model ranks 1 correct item against 256 random negatives. Loss = -log(P) where P is the probability assigned to the correct item. The `~X% correct` in the training output is this probability converted back via e^(-loss).
+
+| Loss | ~P(correct) | Meaning |
+|------|-------------|---------|
+| 5.5 | 0.4% | Random chance (1/257) |
+| 3.0 | 5% | Weak signal |
+| 2.0 | 14% | Learning |
+| 1.0 | 37% | Strong |
+
+**Avg loss (BCE, v1/v3):** Each position independently predicts positive (push toward 1) and negative (push toward 0). Loss near 0.69 is random (coin flip), lower is better. Not directly comparable to SSM loss values.
+
+**HR@10 (Hit Rate):** Did the ground truth item land in the top 10 out of 101 candidates (1 true + 100 random negatives)? Binary per user, averaged across all users.
+
+**NDCG@10 (Normalized Discounted Cumulative Gain):** How high in the top 10? Rewards placement: rank 1 = 1.0, rank 2 = 0.63, rank 5 = 0.39, rank 10 = 0.30. This is the metric that matters most — getting the right item to the top, not just into the list.
+
+**Note:** Both HR and NDCG use 100 sampled negatives, matching the original SASRec protocol (Kang & McAuley 2018). This inflates absolute numbers vs full-catalog evaluation. Compare across versions within this repo, not against papers using full-catalog eval.
+
 ## v1
 
 ### Run

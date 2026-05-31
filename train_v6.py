@@ -18,6 +18,7 @@ References:
 
 import argparse
 from datetime import datetime, timezone
+import math
 
 import torch
 from torch.optim import Adam
@@ -193,16 +194,21 @@ def main():
                     topk=args.topk,
                 )
             # log metrics and loss so far
+            avg_loss = epoch_loss / batches_per_epoch
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(
                 f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
-                f"Avg loss: {epoch_loss / batches_per_epoch:.4f} | "
+                f"Avg loss: {avg_loss:.4f} (~{math.exp(-avg_loss):.1%} correct) | "
                 f"HR@{args.topk}: {hr:.4f} NDCG@{args.topk}: {ndcg:.4f}"
             )
         else:
             # log loss so far
+            avg_loss = epoch_loss / batches_per_epoch
             ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] Avg loss: {epoch_loss / batches_per_epoch:.4f}")
+            print(
+                f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
+                f"Avg loss: {avg_loss:.4f} (~{math.exp(-avg_loss):.1%} correct)"
+            )
 
     # test set evaluation
     model.eval()

@@ -22,7 +22,7 @@ This project builds up SASRec from its original framing all the way to its HSTU 
 | `train_v2.py` | switch to sampled softmax | ML-1M |
 | `train_v3.py` | add gBCE loss + calibration plot | ML-1M |
 | `train_v4.py` | implementation refinements, decompose modules | ML-1M |
-| `train_v5.py` | scale to ML-20M, watch depth collapse | ML-20M |
+| `train_v5.py` | scale to ML-20M, measure depth scaling | ML-20M |
 | `train_v6.py` | fix residual pattern | ML-20M |
 | `train_v7.py` | add relative attention bias | ML-20M |
 | `train_v8.py` | SiLU + pointwise gating → HSTU | ML-20M |

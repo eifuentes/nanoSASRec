@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# train_v5.sh — Depth collapse experiment on ML-20M
+# train_v5.sh - Depth scaling experiment on ML-20M
 #
 # Runs train_v4.py at 2, 4, and 6 attention blocks to demonstrate
 # that SASRec metrics plateau or degrade at 4+ blocks due to
@@ -21,10 +21,10 @@ LOG_DIR="logs/v5"
 
 mkdir -p "$LOG_DIR"
 
-echo "============================================================"
-echo "  v5: Depth collapse experiment on $DATASET"
+echo "============================================================="
+echo "  v5: Depth scaling experiment on $DATASET"
 echo "  Device: $DEVICE | Dim: $DIM | Epochs: $EPOCHS | Seed: $SEED"
-echo "============================================================"
+echo "============================================================="
 
 # Step 0: Download and preprocess
 echo ""
@@ -52,7 +52,7 @@ for BLOCKS in 2 4 6; do
 done
 
 echo ""
-echo "============================================================"
+echo "========================================================================="
 echo "  Done! Logs saved to $LOG_DIR/"
-echo "  Compare final metrics across block counts to see collapse."
-echo "============================================================"
+echo "  Compare final metrics across block counts to see measure depth scaling."
+echo "========================================================================="

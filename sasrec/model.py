@@ -8,6 +8,7 @@ Architecture is identical to v1-v3 with these refinements:
     - Causal mask as registered buffer (created once, not per forward pass)
     - Configurable feed-forward network hidden dim and activation function
     - Attention weight dropout (Vaswani et al. 2017, Section 3.1)
+    - Residual scaling via ReZero (Bachlechner et al. 2020) for stable depth scaling
 """
 
 import math
@@ -133,6 +134,7 @@ class AttentionBlock(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
+        scale_residual: bool = False,
     ):
 
         super().__init__()
@@ -140,6 +142,14 @@ class AttentionBlock(nn.Module):
         # determine feed-forward network arguments
         ffn_hidden_dim = ffn_dim or embedding_dim
         ffn_activation_module = nn.GELU() if ffn_activation == "gelu" else nn.ReLU()
+
+        # setup learnable parameters
+        self.scale_residual = scale_residual
+        # See for detail - ReZero (Bachlechner et al. 2020)
+        if self.scale_residual:
+            # one learnable scaler per residual connection
+            self.residual_scalar_attn = nn.Parameter(torch.zeros(1))
+            self.residual_scalar_ffn = nn.Parameter(torch.zeros(1))
 
         # setup layers
         # attention layers
@@ -160,12 +170,22 @@ class AttentionBlock(nn.Module):
         y = self.norm_attn(x)
         y = self.attn(y, mask=mask)
         y = self.dropout_attn(y)
-        x = x + y  # residual connection: add original input back so gradients can flow through unchanged
+        # residual connection: add original input back so gradients
+        # can flow without having to go through attention
+        if self.scale_residual:
+            x = x + (self.residual_scalar_attn * y)
+        else:
+            x = x + y
         # forward feed forward network
         y = self.norm_ffn(x)
         y = self.ffn(y)
         y = self.dropout_ffn(y)
-        return x + y  # residual connections
+        # residual connections
+        if self.scale_residual:
+            x = x + (self.residual_scalar_ffn * y)
+        else:
+            x = x + y
+        return x
 
 
 class SASRec(nn.Module):
@@ -179,6 +199,7 @@ class SASRec(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
+        scale_residual: bool = False,
     ):
 
         super().__init__()
@@ -201,6 +222,7 @@ class SASRec(nn.Module):
                     num_heads=num_heads,
                     ffn_dim=ffn_dim,
                     ffn_activation=ffn_activation,
+                    scale_residual=scale_residual,
                 )
                 for _ in range(num_blocks)
             ]

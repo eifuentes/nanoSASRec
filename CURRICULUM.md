@@ -1027,3 +1027,19 @@ Estimate batches per epoch: 47
 **Why no outright collapse?** The papers that documented depth collapse (Peng et al. 2022, Guo et al. 2024 Table 8) used the original SASRec implementation with Post-LN normalization and PyTorch default initialization. Our v4 refinements (Pre-LN, truncated normal init, attention dropout) already mitigate the worst over-smoothing. We accidentally fixed the easy part of the depth problem in v4. The harder part — making depth actually *worth the cost* — requires the architectural changes in v6-v8.
 
 **The over-smoothing mechanism is still present, just delayed.** With more blocks, item representations in the sequence converge toward each other as each attention layer blends them further. At 2 blocks the useful signal is "recent items predict next item" and "similar genres cluster." Blocks 3-6 have diminishing new structure to extract from flat item sequences (unlike language, which has deep syntactic hierarchy for deeper layers to decompose). The representations don't collapse into uniformity, but they stop improving meaningfully.
+
+## v6: ReZero Residual Scaling
+
+**What changed:** Added learnable residual scaling (ReZero) to each attention block. Two scalar parameters per block (one for attention, one for FFN), initialized to zero. This makes each block start as an identity function and gradually learn how much to contribute to the residual stream. 12 extra parameters for 6 blocks.
+
+**Results on ML-20M (6 blocks, dim=64, 50 epochs, seed=42):**
+
+| Config | Test HR@10 | Test NDCG@10 | Final Loss |
+|--------|------------|--------------|------------|
+| v5: 2 blocks, no scaling | 0.9512 | 0.7798 | 1.7156 |
+| v5: 6 blocks, no scaling | 0.9541 | 0.7883 | 1.6194 |
+| v6: 6 blocks, ReZero | 0.9553 | 0.7917 | 1.5992 |
+
+**Why ReZero helps (a little).** Without scaling, each block dumps an equal-weight contribution onto the residual stream. After 6 blocks the original embedding is ~14% of the final representation — diluted by accumulated block outputs. ReZero initializes each block as identity (alpha=0), so the model first learns good embeddings, then gradually lets each block contribute what it's learned. The residual stream stays dominated by useful signal.
+
+**Why the gains are modest.** ReZero keeps the residual stream healthy, but deeper blocks still have nothing fundamentally new to learn from flat item sequences. The attention mechanism (softmax over Q·K) saturates at 2-3 blocks worth of sequential patterns. Making depth stable is necessary but not sufficient — deeper blocks also need new information to work with.

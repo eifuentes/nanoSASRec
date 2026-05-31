@@ -6,10 +6,11 @@ Curriculum walkthrough from v1 to v8.
 
 Here are known differences from the original SASRec implementation.
 
-- **v1 uses Pre-LN** (norm before attention), the original uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models, which is why we start with it - v5+ needs it to scale.
-- **Weight initialization** differs from the original (PyTorch defaults vs Xavier uniform). Affects early training dynamics, shifts final metrics by 1-3%.
+- **Pre-LN normalization** (norm before attention/FFN). The original SASRec uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models (Xiong et al. ICML 2020) and is what all modern implementations use, including HSTU and PinnerFormer.
+- **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Meta's SASRec) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
+- **Reversed positional embeddings** (Huang 2025, arxiv: 2504.09596). The original uses forward indexing; v4+ counts backward from the prediction position so the model learns "how far back" rather than "what absolute slot."
 
-These are intentional choices, not bugs.
+These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
 
 ## v1
 
@@ -1006,3 +1007,23 @@ Estimate batches per epoch: 47
 - **Attention dropout** was missing in v1-v3. The original Transformer paper applies dropout on attention weights after softmax, not just on the output. One line, standard practice.
 
 **The lesson:** v1-v3 proved the loss function matters. v4 proves implementation details matter just as much — +7% HR and +14% NDCG from changes that didn't touch the loss or model capacity. D'Ercoli et al. 2025 documented 2-5% swings from these details individually; they compound.
+
+## v5: Scaling to ML-20M - Depth Doesn't Pay
+
+**What changed:** No new code. Ran `train_v4.py` on ML-20M (138K users, 18K items) at 2, 4, and 6 attention blocks to measure whether depth improves metrics on a larger dataset. Shell script `train_v5.sh` automates the experiment. See it for `run` commands used.
+
+### Takeaway
+
+**Results on ML-20M (50 epochs, dim=64, batch_size=256, seed=42):**
+
+| Blocks | Params | Test HR@10 | Test NDCG@10 | Time/epoch |
+|--------|--------|------------|--------------|------------|
+| 2 | 1,236,928 | 0.9512 | 0.7798 | ~45s |
+| 4 | 1,286,848 | 0.9526 | 0.7850 | ~75s |
+| 6 | 1,336,768 | 0.9541 | 0.7883 | ~110s |
+
+**Depth doesn't collapse — but it doesn't pay either.** Going from 2 to 6 blocks adds 8% more parameters, takes 2.5x longer per epoch, and gains only +0.3% HR and +1.1% NDCG. Tripling your compute budget for +1% is a bad tradeoff. This is why production SASRec stayed at 2 blocks for years.
+
+**Why no outright collapse?** The papers that documented depth collapse (Peng et al. 2022, Guo et al. 2024 Table 8) used the original SASRec implementation with Post-LN normalization and PyTorch default initialization. Our v4 refinements (Pre-LN, truncated normal init, attention dropout) already mitigate the worst over-smoothing. We accidentally fixed the easy part of the depth problem in v4. The harder part — making depth actually *worth the cost* — requires the architectural changes in v6-v8.
+
+**The over-smoothing mechanism is still present, just delayed.** With more blocks, item representations in the sequence converge toward each other as each attention layer blends them further. At 2 blocks the useful signal is "recent items predict next item" and "similar genres cluster." Blocks 3-6 have diminishing new structure to extract from flat item sequences (unlike language, which has deep syntactic hierarchy for deeper layers to decompose). The representations don't collapse into uniformity, but they stop improving meaningfully.

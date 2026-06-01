@@ -9,6 +9,7 @@ Architecture is identical to v1-v3 with these refinements:
     - Configurable feed-forward network hidden dim and activation function
     - Attention weight dropout (Vaswani et al. 2017, Section 3.1)
     - Residual scaling via ReZero (Bachlechner et al. 2020) for stable depth scaling
+    - Relative position bias (Raffel et al. 2020, Zhai et al. 2024) with log-bucketed distances
 """
 
 import math
@@ -40,6 +41,50 @@ def init_weights(module: nn.Module, embedding_dim: int):
         nn.init.zeros_(module.bias)
 
 
+def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int = 32) -> torch.Tensor:
+    """Convert relative position distances to bucket indices.
+
+    First half of buckets are linear (one per distance for fine-grained recency).
+    Second half are logarithmically spaced (coarse for distant items).
+    """
+    # with num_buckets=32, this is 16.
+    # Distances 0-15 each get their own dedicated bucket.
+    # Distance 0 → bucket 0, distance 1 → bucket 1, ..., distance 15 → bucket 15
+    max_exact = num_buckets // 2
+    # determine max_distance from the tensor of relative distances itself
+    # guard for sequences where max_distances is less than max_exact
+    max_distance = max(relative_positions[0, -1].item(), max_exact + 1)
+    # only care about non-negative distances (causal: i attends to j where j <= i)
+    # negative distances mean "future positions" which causal masking blocks anyway.
+    # clamp them to 0 so we don't get negative indices or log-of-negative errors.
+    # example: the matrix [[0,1,2],[-1,0,1],[-2,-1,0]] becomes [[0,1,2],[0,0,1],[0,0,0]]
+    relative_positions = relative_positions.clamp(min=0)
+    # small distances: linear bucket (one per distance)
+    # create boolean mask.
+    # True wherever the distance is small enough for a linear bucket.
+    is_small = relative_positions < max_exact
+    # avoid log(0) in the computation even though torch.where won't select it
+    safe_positions = relative_positions.clamp(min=1)
+    # large distances: logarithmic bucket
+    log_buckets = (
+        max_exact
+        + (  # offset past the linear buckets
+            # normalize distances relative to where the log region starts
+            # then conducts a log transform
+            torch.log(safe_positions.float() / max_exact)
+            # normalize so that max_distance maps to 1.0
+            / math.log(max_distance / max_exact)
+            # scale to fill the remaining N buckets
+            * (num_buckets - max_exact)
+        ).long()
+    )
+    # caps at num_buckets - 1 (the last valid bucket index)
+    log_buckets = log_buckets.clamp(max=num_buckets - 1)
+    # selects linear where small, log where large
+    buckets = torch.where(is_small, relative_positions, log_buckets)
+    return buckets
+
+
 class SelfAttention(nn.Module):
     def __init__(self, embedding_dim: int, dropout_rate: float, num_heads: int = 1):
 
@@ -56,12 +101,13 @@ class SelfAttention(nn.Module):
         # add attention dropout
         self.attn_dropout = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Scaled Dot-Product Self-Attention.
 
         Args:
             x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
             mask (torch.Tensor): mask to preserve causal nature of attention scores
+            bias (torch.Tensor, optional): relative position bias of size(1, num_heads, seq_len, seq_len)
 
         Returns:
             torch.Tensor: attended input tensor of size(batch_size, seq_len, embedding_dim)
@@ -100,6 +146,16 @@ class SelfAttention(nn.Module):
         # large values in each signed direction mean position pairs are compatible or incompatible
         # NOTE: sqrt is used to keep values not too extreme for softmax, preventing saturation
         attn_scores = torch.matmul(query, key) / math.sqrt(head_dim)  # (batch_size, num_heads, seq_len, seq_len)
+
+        # optionally add relative position bias to attention scores.
+        # unlike absolute position embeddings (added to item embeddings before attention),
+        # this injects position information directly into the attention score matrix.
+        # this keeps content signal (Q·K similarity) separate from position signal,
+        # letting the model independently learn "how similar are these items" and
+        # "how far apart are they in the sequence."
+        # (Raffel et al. 2020 - T5, Zhai et al. 2024 - HSTU)
+        if bias is not None:
+            attn_scores = attn_scores + bias
 
         # apply boolean mask to protect causality
         # aka each position not having scores associated with positions to the right of it
@@ -165,10 +221,14 @@ class AttentionBlock(nn.Module):
         )
         self.dropout_ffn = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        # forward attention
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
+        # forward attention (with relative position bias if provided)
         y = self.norm_attn(x)
-        y = self.attn(y, mask=mask)
+        if bias is not None:
+            y = self.attn(y, mask=mask, bias=bias)
+        else:
+            y = self.attn(y, mask=mask)
+        # apply attention dropout
         y = self.dropout_attn(y)
         # residual connection: add original input back so gradients
         # can flow without having to go through attention
@@ -176,7 +236,7 @@ class AttentionBlock(nn.Module):
             x = x + (self.residual_scalar_attn * y)
         else:
             x = x + y
-        # forward feed forward network
+        # forward feed forward network with norm and dropout
         y = self.norm_ffn(x)
         y = self.ffn(y)
         y = self.dropout_ffn(y)
@@ -200,17 +260,29 @@ class SASRec(nn.Module):
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
+        relative_position_bias: bool = False,
+        num_relative_bias_buckets: int = 32,
     ):
 
         super().__init__()
+
+        # arguments
+        self.use_relative_position_bias = relative_position_bias
+        self.num_relative_bias_buckets = num_relative_bias_buckets
 
         # setup item and position embeddings tables to convert integers to dense vectors
         # +1 because item IDs are 1-indexed and index 0 is reserved for padding
         self.item_embedding_table = nn.Embedding(
             num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0
         )
-        # max_seq_len - 1 because the shifted input/target split reduces sequence length by 1
-        self.position_embedding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
+        # determine position embedding table type
+        if self.use_relative_position_bias:
+            self.position_bias_embedding_table = nn.Embedding(
+                num_embeddings=num_relative_bias_buckets, embedding_dim=num_heads
+            )
+        else:
+            # max_seq_len - 1 because the shifted input/target split reduces sequence length by 1
+            self.position_embedding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
         self.dropout_embedding = nn.Dropout(p=dropout_rate)
         self.final_norm = nn.LayerNorm(embedding_dim)
         # Build attention blocks
@@ -239,22 +311,44 @@ class SASRec(nn.Module):
         batch_size, seq_len = x.size()
         # convert item IDs to dense vectors
         item_embeddings = self.item_embedding_table(x)  # (batch_size, seq_len, embedding_dim)
-        # convert item positions to dense vectors
-        # NOTE: Reversed positional indexing (Huang 2025, arxiv: 2504.09596):
-        # With forward indexing e.g. a 5-item user predicts from position 4 while a
-        # 200-item user predicts from position 199. the model must learn that
-        # different position embeddings all mean "predict next item."
-        # With reversed indexing, the prediction position is always embedding 0,
-        # so the model consistently learns "how far back is this item."
-        positions = torch.arange(seq_len - 1, -1, -1, device=x.device)
-        position_embeddings = self.position_embedding_table(positions)  # (seq_len, embedding_dim)
-        # add them together
-        embeddings = item_embeddings + position_embeddings  # automatic broadcast
-        # apply dropout
-        embeddings = self.dropout_embedding(embeddings)
-        # process through entire module list of attention blocks
-        x = embeddings
-        for attn_block in self.attn_blocks:
-            x = attn_block(x, mask=self.causal_mask)  # (batch_size, seq_len, embedding_dim)
+
+        if self.use_relative_position_bias:
+            # calculate relative position biases to use later
+            positions = torch.arange(seq_len, device=x.device)
+            relative_position_distances = positions.unsqueeze(0) - positions.unsqueeze(1)  # (seq_len, seq_len)
+            relative_position_buckets = bucket_relative_positions(
+                relative_position_distances, num_buckets=self.num_relative_bias_buckets
+            )
+            position_biases = self.position_bias_embedding_table(
+                relative_position_buckets
+            )  # (seq_len, seq_len, num_heads)
+            # required permutation so attention scores are compatible
+            # permute from (seq_len, seq_len, num_heads) to (1, num_heads, seq_len, seq_len)
+            # to broadcast with attn_scores shape (batch_size, num_heads, seq_len, seq_len)
+            position_biases = position_biases.permute(2, 0, 1).unsqueeze(0)  # (1, num_heads, seq_len, seq_len)
+            # input is simply the item embeddings
+            x = item_embeddings
+            # apply dropout
+            x = self.dropout_embedding(x)
+            # process through entire module list of attention blocks with position biases
+            for attn_block in self.attn_blocks:
+                x = attn_block(x, mask=self.causal_mask, bias=position_biases)  # (batch_size, seq_len, embedding_dim)
+        else:
+            # convert item positions to dense vectors
+            # NOTE: Reversed positional indexing (Huang 2025, arxiv: 2504.09596):
+            # With forward indexing e.g. a 5-item user predicts from position 4 while a
+            # 200-item user predicts from position 199. the model must learn that
+            # different position embeddings all mean "predict next item."
+            # With reversed indexing, the prediction position is always embedding 0,
+            # so the model consistently learns "how far back is this item."
+            positions = torch.arange(seq_len - 1, -1, -1, device=x.device)
+            position_embeddings = self.position_embedding_table(positions)  # (seq_len, embedding_dim)
+            # add them together
+            x = item_embeddings + position_embeddings  # automatic broadcast
+            # apply dropout
+            x = self.dropout_embedding(x)
+            # process through entire module list of attention blocks
+            for attn_block in self.attn_blocks:
+                x = attn_block(x, mask=self.causal_mask)  # (batch_size, seq_len, embedding_dim)
         # final layer normalization since attention ends in residual add
         return self.final_norm(x)  # (batch_size, seq_len, embedding_dim)

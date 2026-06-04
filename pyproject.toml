@@ -9,6 +9,9 @@ dependencies = [
 ]
 
 [dependency-groups]
+cloud = [
+    "modal>=1.4.3",
+]
 dev = [
     "ruff>=0.15.12",
 ]

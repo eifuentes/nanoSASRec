@@ -20,75 +20,67 @@ def evaluate(
     device: torch.device,
     mode: str = "valid",
     topk: int = 10,
+    eval_batch_size: int = 256,
 ) -> Tuple[float, float]:
     hrs, ndcgs = [], []
-    eval_max_len = max_len - 1  # required to match training
+    eval_max_len = max_len - 1
+
+    # Pre-build all user sequences and ground truths
+    all_seqs = []
+    all_gts = []
+    all_seens = []
     for user in range(1, num_users + 1):
-        # generate user sequence based on mode
-        user_seq = list(user_train[user])  # copy
+        user_seq = list(user_train[user])
         if mode == "test":
-            # for test mode, add validation sequence to train
             user_seq = user_seq + user_valid[user]
 
-        # pad to max sequence length
         seq_len = len(user_seq)
         if seq_len >= eval_max_len:
-            # User sequences are temporally ordered from oldest to newest
-            # For these models its best practice to keep the most recent interactions
-            start_idx = seq_len - eval_max_len
-            user_seq = user_seq[start_idx:]
+            user_seq = user_seq[seq_len - eval_max_len :]
         else:
-            # 0 is reserved value for padding values
-            num_pads = eval_max_len - seq_len
-            pad_seq = [0] * num_pads
-            user_seq = pad_seq + user_seq
+            user_seq = [0] * (eval_max_len - seq_len) + user_seq
 
-        # convert to tensors and do model forward pass extracting last position as prediction
-        input_seq = torch.tensor(user_seq, dtype=torch.long).expand(1, -1).to(device)
-        output_seq = model.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
-        output_pred = output_seq[:, -1, :]
+        all_seqs.append(user_seq)
 
-        # determine ground truth in leave one out evaluation methodology
         if mode == "valid":
-            ground_truth = user_valid[user][0]
+            all_gts.append(user_valid[user][0])
+            all_seens.append(set(user_train[user]) | {user_valid[user][0]})
         else:
-            ground_truth = user_test[user][0]
+            all_gts.append(user_test[user][0])
+            all_seens.append(set(user_train[user]) | set(user_valid[user]) | {user_test[user][0]})
 
-        # generate candidates to evaluate prediction against
-        # sample items from unseen data
-        if mode == "valid":
-            seen = set(user_train[user]) | {ground_truth}
-        else:
-            seen = set(user_train[user]) | set(user_valid[user]) | {ground_truth}
-        # draw 100 negative samples for eval (matches original SASRec protocol)
-        # NOTE: sampled eval with 100 negatives inflates metrics vs full-catalog eval
-        # full-catalog evaluation explored in later versions.
-        negatives = []
-        while len(negatives) < 100:
-            item = random.randint(1, num_items)
-            if item not in seen:
-                negatives.append(item)
-        # combine ground truth with sampled negatives
-        # NOTE: ground truth must be first
-        candidates = [ground_truth] + negatives
+    # Process in batches
+    for start in range(0, num_users, eval_batch_size):
+        end = min(start + eval_batch_size, num_users)
+        batch_seqs = all_seqs[start:end]
+        batch_gts = all_gts[start:end]
+        batch_seens = all_seens[start:end]
 
-        # score candidates from learned embeddings against predicted position embedding
-        candidate_ids = torch.tensor(candidates, dtype=torch.long).to(device)  # (101,)
-        candidate_embeddings = model.item_embedding_table(candidate_ids)  # (101, embedding_dim)
-        eval_scores = torch.multiply(output_pred, candidate_embeddings).sum(dim=-1)  # (101,)
+        # Batched forward pass
+        input_batch = torch.tensor(batch_seqs, dtype=torch.long, device=device)
+        output_batch = model(input_batch)
+        pred_batch = output_batch[:, -1, :]  # (batch, embedding_dim)
 
-        # rank of ground truth among all candidates (0-indexed)
-        rank = (eval_scores > eval_scores[0]).sum().item()  # how many negatives scored higher
+        # Score candidates per user (negatives differ per user)
+        for i in range(end - start):
+            ground_truth = batch_gts[i]
+            seen = batch_seens[i]
 
-        # HR@10: did ground truth land in top 10?
-        hr = 1.0 if rank < topk else 0.0
-        hrs.append(hr)
+            negatives = []
+            while len(negatives) < 100:
+                item = random.randint(1, num_items)
+                if item not in seen:
+                    negatives.append(item)
+            candidates = [ground_truth] + negatives
 
-        # NDCG@10: how high in the top 10?
-        ndcg = (1.0 / math.log2(rank + 2)) if rank < topk else 0.0  # +2 because rank is 0-indexed
-        ndcgs.append(ndcg)
+            candidate_ids = torch.tensor(candidates, dtype=torch.long, device=device)
+            candidate_embs = model.item_embedding_table(candidate_ids)
+            scores = torch.multiply(pred_batch[i], candidate_embs).sum(dim=-1)
 
-    # average across all users to get HR@ and NDCG@ metrics
+            rank = (scores > scores[0]).sum().item()
+            hrs.append(1.0 if rank < topk else 0.0)
+            ndcgs.append((1.0 / math.log2(rank + 2)) if rank < topk else 0.0)
+
     hr_at = sum(hrs) / num_users
     ndcg_at = sum(ndcgs) / num_users
     return hr_at, ndcg_at

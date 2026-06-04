@@ -19,6 +19,7 @@ image = (
 
 data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)
 
+
 @app.function(
     image=image,
     gpu="A10",
@@ -27,9 +28,11 @@ data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)
 )
 def train(cmd: str):
     import subprocess
+
     subprocess.run("python -u data.py --dataset ml-20m", shell=True, cwd="/app", check=True)
     subprocess.run(cmd, shell=True, cwd="/app", check=True)
     data_volume.commit()
+
 
 @app.local_entrypoint()
 def main(cmd: str):

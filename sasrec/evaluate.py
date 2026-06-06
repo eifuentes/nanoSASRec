@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from .model import SASRec
 
+
 def evaluate(
     model: SASRec,
     user_train: Dict[int, List[int]],

@@ -38,4 +38,4 @@ def train(cmd: str):
 def main(cmd: str):
     cmd += " --device cuda"
     print(f"Running: {cmd}")
-    train.remote(cmd)
+    train.spawn(cmd)

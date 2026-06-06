@@ -2,12 +2,10 @@
 
 import math
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
-
 from .model import SASRec
-
 
 def evaluate(
     model: SASRec,
@@ -21,14 +19,22 @@ def evaluate(
     mode: str = "valid",
     topk: int = 10,
     eval_batch_size: int = 256,
+    user_train_ts: Optional[Dict[int, List[int]]] = None,
+    user_valid_ts: Optional[Dict[int, List[int]]] = None,
 ) -> Tuple[float, float]:
     hrs, ndcgs = [], []
     eval_max_len = max_len - 1
 
-    # Pre-build all user sequences and ground truths
+    # Pre-build all user sequences, timestamps, and ground truths
     all_seqs = []
+    all_ts = []
     all_gts = []
     all_seens = []
+    # When timestamps are available, pass them to the model so temporal bias
+    # is active during evaluation (matching training conditions).
+    # Without this, eval only uses positional bias, underestimating the model.
+    has_timestamps = user_train_ts is not None and len(user_train_ts) > 0
+
     for user in range(1, num_users + 1):
         user_seq = list(user_train[user])
         if mode == "test":
@@ -39,8 +45,19 @@ def evaluate(
             user_seq = user_seq[seq_len - eval_max_len :]
         else:
             user_seq = [0] * (eval_max_len - seq_len) + user_seq
-
         all_seqs.append(user_seq)
+
+        # Build parallel timestamp sequence
+        if has_timestamps and user_train_ts is not None:
+            ts_seq = list(user_train_ts[user])
+            if mode == "test" and user_valid_ts:
+                ts_seq = ts_seq + user_valid_ts[user]
+            ts_len = len(ts_seq)
+            if ts_len >= eval_max_len:
+                ts_seq = ts_seq[ts_len - eval_max_len :]
+            else:
+                ts_seq = [0] * (eval_max_len - ts_len) + ts_seq
+            all_ts.append(ts_seq)
 
         if mode == "valid":
             all_gts.append(user_valid[user][0])
@@ -58,7 +75,12 @@ def evaluate(
 
         # Batched forward pass
         input_batch = torch.tensor(batch_seqs, dtype=torch.long, device=device)
-        output_batch = model(input_batch)
+        if has_timestamps:
+            batch_ts = all_ts[start:end]
+            ts_batch = torch.tensor(batch_ts, dtype=torch.long, device=device)
+            output_batch = model(input_batch, timestamps=ts_batch)
+        else:
+            output_batch = model(input_batch)
         pred_batch = output_batch[:, -1, :]  # (batch, embedding_dim)
 
         # Score candidates per user (negatives differ per user)

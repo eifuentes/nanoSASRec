@@ -1,21 +1,26 @@
 """
-train_v7.py - SASRec + Relative Position Bias
+train_v7.py — SASRec + Relative Position & Temporal Bias
 
 Replaces absolute position embeddings with relative attention bias.
 Instead of adding position vectors to item embeddings (entangling content
 and position), injects position information directly into attention scores
 as a learned bias based on the distance between positions.
 
-Distances are log-bucketed: fine-grained for recent items (0-15 steps),
-coarse for distant items (16-199 steps). Shared across all attention blocks.
+Adds temporal bias from interaction timestamps, the time delta between
+each pair of interactions is log-bucketed and looked up as a separate
+learned bias, additive with positional bias. The Scaling New Frontiers
+ablation (Table 3) shows temporal bias is more important than positional
+bias for sequential recommendation.
 
-Run using the command: `uv run python train_v7.py --dataset ml-20m --blocks 6 --dim 64 --epochs 50 --eval-every 10`
-Be sure to specify the device you want to run on using the --device argument.
+Distances are log-bucketed: fine-grained for recent items (0-15 steps/seconds),
+coarse for distant items. 32 buckets each, shared across all attention blocks.
 
 References:
     - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture
+    - Li et al., WSDM 2020 (arxiv: 2005.10602) - TiSASRec, time intervals in self-attention
     - Raffel et al., 2020 (arxiv: 1910.10683) - T5 relative position bias
-    - Zhai et al., ICML 2024 (arxiv: 2402.17152) - HSTU relative attention bias
+    - Zhai et al., ICML 2024 (arxiv: 2402.17152) - HSTU relative attention bias (position + time)
+    - Guo et al., 2024 (arxiv: 2412.00714) - Scaling New Frontiers, temporal > positional (Table 3)
     - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) - Sampled Softmax loss
 """
 
@@ -59,10 +64,10 @@ def main():
         help="ReZero residual scaling (disable with --no-scale-res)",
     )
     parser.add_argument(
-        "--pos-bias",
+        "--rel-bias",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Relative position bias (disable with --no-pos-bias)",
+        help="Relative position and temporal bias (disable with --no-rel-bias)",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
@@ -82,7 +87,17 @@ def main():
         print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
 
     # Load pre-processed dataset with train, validation, test splits
-    user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
+    (
+        user_train,
+        user_valid,
+        user_test,
+        num_users,
+        num_items,
+        item_id_map,
+        user_train_ts,
+        user_valid_ts,
+        user_test_ts,
+    ) = load_data(args.data_dir, args.dataset)
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
     # load titles for future demos
     titles = load_item_titles(args.data_dir, args.dataset, item_id_map)
@@ -98,7 +113,7 @@ def main():
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
         scale_residual=args.scale_res,
-        relative_position_bias=args.pos_bias,
+        relative_bias=args.rel_bias,
     )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")
@@ -124,22 +139,27 @@ def main():
             # Sampled input user sequences, causal preserving target positives, and user-level negatives for loss calculation
             # input and positive sequence arrays are max_len - 1 length due to autoregressive learning task setup
             # each row in batch_size is a sampled user
-            input_seq, pos_seq, neg_seq = sample_batch(
+            input_seq, pos_seq, neg_seq, input_timestamps = sample_batch(
                 user_train,
                 num_users=num_users,
                 num_items=num_items,
                 max_len=args.max_len,
                 batch_size=args.batch_size,
                 num_negs=args.num_negatives,
+                timestamps=user_train_ts,
             )
 
             # Convert numpy int64 arrays to torch LongTensors
             input_seq = torch.as_tensor(input_seq).to(device)  # (batch_size, seq_len)
             pos_seq = torch.as_tensor(pos_seq).to(device)  # (batch_size, seq_len)
             neg_seq = torch.as_tensor(neg_seq).to(device)  # (batch_size, num_negs)
+            if input_timestamps is not None:
+                input_timestamps = torch.as_tensor(input_timestamps).to(device)  # (batch_size, seq_len)
 
             # Determine embeddings for input, positive and negative sequences
-            output_embedding_seq = model.forward(input_seq)  # (batch_size, seq_len, embedding_dim)
+            output_embedding_seq = model.forward(
+                input_seq, timestamps=input_timestamps
+            )  # (batch_size, seq_len, embedding_dim)
             pos_embedding_seq = model.item_embedding_table(pos_seq)  # (batch_size, seq_len, embedding_dim)
             neg_embedding_seq = model.item_embedding_table(neg_seq)  # (batch_size, num_negs, embedding_dim)
 
@@ -202,6 +222,8 @@ def main():
                     device=device,
                     mode="valid",
                     topk=args.topk,
+                    user_train_ts=user_train_ts,
+                    user_valid_ts=user_valid_ts,
                 )
             # log metrics and loss so far
             avg_loss = epoch_loss / batches_per_epoch
@@ -234,6 +256,8 @@ def main():
             device,
             mode="test",
             topk=args.topk,
+            user_train_ts=user_train_ts,
+            user_valid_ts=user_valid_ts,
         )
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
     print(

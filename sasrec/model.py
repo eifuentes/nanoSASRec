@@ -85,6 +85,50 @@ def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int
     return buckets
 
 
+def bucket_temporal_distances(relative_timestamps: torch.Tensor, num_buckets: int = 32) -> torch.Tensor:
+    """Convert relative timestamp timedeltas to bucket indices.
+
+    First half of buckets are linear (one per timedelta for fine-grained recency).
+    Second half are logarithmically spaced (coarse for timedelta items).
+    """
+    # with num_buckets=32, this is 16.
+    # Distances 0-15 each get their own dedicated bucket.
+    # Distance 0 → bucket 0, timedelta 1 → bucket 1, ..., timedelta 15 → bucket 15
+    max_exact = num_buckets // 2
+    # determine max_timedelta from as a lookback window in seconds
+    # picked 30 days which covers most user behavior windows
+    max_timedelta = 86400 * 30  # 30 days in seconds
+    # only care about non-negative timedeltas (causal: i attends to j where j <= i)
+    # negative timedeltas mean "future timestamps" which causal masking blocks anyway.
+    # clamp them to 0 so we don't get negative indices or log-of-negative errors.
+    # example: the matrix [[0,1,2],[-1,0,1],[-2,-1,0]] becomes [[0,1,2],[0,0,1],[0,0,0]]
+    relative_timedelta = relative_timestamps.clamp(min=0)
+    # small timedeltas: linear bucket (one per timedelta)
+    # create boolean mask.
+    # True wherever the timedelta is small enough for a linear bucket.
+    is_small = relative_timedelta < max_exact
+    # avoid log(0) in the computation even though torch.where won't select it
+    safe_positions = relative_timedelta.clamp(min=1)
+    # large timedeltas: logarithmic bucket
+    log_buckets = (
+        max_exact
+        + (  # offset past the linear buckets
+            # normalize timedeltas relative to where the log region starts
+            # then conducts a log transform
+            torch.log(safe_positions.float() / max_exact)
+            # normalize so that max_timedelta maps to 1.0
+            / math.log(max_timedelta / max_exact)
+            # scale to fill the remaining N buckets
+            * (num_buckets - max_exact)
+        ).long()
+    )
+    # caps at num_buckets - 1 (the last valid bucket index)
+    log_buckets = log_buckets.clamp(max=num_buckets - 1)
+    # selects linear where small, log where large
+    buckets = torch.where(is_small, relative_timedelta, log_buckets)
+    return buckets
+
+
 class SelfAttention(nn.Module):
     def __init__(self, embedding_dim: int, dropout_rate: float, num_heads: int = 1):
 
@@ -107,7 +151,7 @@ class SelfAttention(nn.Module):
         Args:
             x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
             mask (torch.Tensor): mask to preserve causal nature of attention scores
-            bias (torch.Tensor, optional): relative position bias of size(1, num_heads, seq_len, seq_len)
+            bias (torch.Tensor, optional): relative bias of size(1, num_heads, seq_len, seq_len)
 
         Returns:
             torch.Tensor: attended input tensor of size(batch_size, seq_len, embedding_dim)
@@ -147,7 +191,7 @@ class SelfAttention(nn.Module):
         # NOTE: sqrt is used to keep values not too extreme for softmax, preventing saturation
         attn_scores = torch.matmul(query, key) / math.sqrt(head_dim)  # (batch_size, num_heads, seq_len, seq_len)
 
-        # optionally add relative position bias to attention scores.
+        # optionally add relative position and/or temporal bias to attention scores.
         # unlike absolute position embeddings (added to item embeddings before attention),
         # this injects position information directly into the attention score matrix.
         # this keeps content signal (Q·K similarity) separate from position signal,
@@ -222,7 +266,7 @@ class AttentionBlock(nn.Module):
         self.dropout_ffn = nn.Dropout(p=dropout_rate)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # forward attention (with relative position bias if provided)
+        # forward attention (with relative position and/or temporal bias if provided)
         y = self.norm_attn(x)
         if bias is not None:
             y = self.attn(y, mask=mask, bias=bias)
@@ -260,14 +304,14 @@ class SASRec(nn.Module):
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
-        relative_position_bias: bool = False,
+        relative_bias: bool = False,
         num_relative_bias_buckets: int = 32,
     ):
 
         super().__init__()
 
         # arguments
-        self.use_relative_position_bias = relative_position_bias
+        self.use_relative_bias = relative_bias
         self.num_relative_bias_buckets = num_relative_bias_buckets
 
         # setup item and position embeddings tables to convert integers to dense vectors
@@ -275,9 +319,15 @@ class SASRec(nn.Module):
         self.item_embedding_table = nn.Embedding(
             num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0
         )
-        # determine position embedding table type
-        if self.use_relative_position_bias:
+        # determine bias embedding table types
+        if self.use_relative_bias:
             self.position_bias_embedding_table = nn.Embedding(
+                num_embeddings=num_relative_bias_buckets, embedding_dim=num_heads
+            )
+            # Separate embedding table for temporal biases, learns how time gaps
+            # between interactions affect attention. Items consumed minutes apart
+            # (same session) get different bias than items months apart (behavior drift).
+            self.temporal_bias_embedding_table = nn.Embedding(
                 num_embeddings=num_relative_bias_buckets, embedding_dim=num_heads
             )
         else:
@@ -307,13 +357,13 @@ class SASRec(nn.Module):
         mask = torch.triu(torch.ones((max_seq_len - 1, max_seq_len - 1)), diagonal=1).bool()
         self.register_buffer("causal_mask", mask)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, timestamps: Optional[torch.Tensor] = None) -> torch.Tensor:
         batch_size, seq_len = x.size()
         # convert item IDs to dense vectors
         item_embeddings = self.item_embedding_table(x)  # (batch_size, seq_len, embedding_dim)
 
-        if self.use_relative_position_bias:
-            # calculate relative position biases to use later
+        if self.use_relative_bias:
+            # calculate relative position and temporal biases to use later
             positions = torch.arange(seq_len, device=x.device)
             relative_position_distances = positions.unsqueeze(0) - positions.unsqueeze(1)  # (seq_len, seq_len)
             relative_position_buckets = bucket_relative_positions(
@@ -326,6 +376,19 @@ class SASRec(nn.Module):
             # permute from (seq_len, seq_len, num_heads) to (1, num_heads, seq_len, seq_len)
             # to broadcast with attn_scores shape (batch_size, num_heads, seq_len, seq_len)
             position_biases = position_biases.permute(2, 0, 1).unsqueeze(0)  # (1, num_heads, seq_len, seq_len)
+            # adds temporal timestamp biases to position biases in similar fashion
+            if timestamps is not None:
+                # Compute pairwise time differences between all positions in the sequence.
+                # Unlike positional distances (same for all users), temporal distances are
+                # per-user since each user has different interaction timestamps.
+                # Shape is (batch_size, seq, seq) not (seq, seq) — each user gets unique biases.
+                time_deltas = timestamps.unsqueeze(1) - timestamps.unsqueeze(2)  # (batch_size, seq_len, seq_len)
+                time_buckets = bucket_temporal_distances(time_deltas, num_buckets=self.num_relative_bias_buckets)
+                temporal_biases = self.temporal_bias_embedding_table(time_buckets)
+                # NOTE: temporal bias is (batch_size, num_heads, seq_len, seq_len)
+                # not (1, num_heads, seq_len, seq_len) because each user has different timestamps.
+                temporal_biases = temporal_biases.permute(0, 3, 1, 2)  # (batch_size, num_heads, seq_len, seq_len)
+                position_biases = position_biases + temporal_biases  # broadcast: (1,h,s,s) + (b,h,s,s)
             # input is simply the item embeddings
             x = item_embeddings
             # apply dropout

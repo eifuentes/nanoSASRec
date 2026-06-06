@@ -3,14 +3,24 @@
 import json
 import os
 import random
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 
 
 def load_data(
     data_dir: str, dataset: str
-) -> Tuple[Dict[int, List[int]], Dict[int, List[int]], Dict[int, List[int]], int, int, Dict[int, str]]:
+) -> Tuple[
+    Dict[int, List[int]],
+    Dict[int, List[int]],
+    Dict[int, List[int]],
+    int,
+    int,
+    Dict[int, str],
+    Dict[int, List[int]],
+    Dict[int, List[int]],
+    Dict[int, List[int]],
+]:
     """Load preprocessed dataset split from disk.
 
     Returns: user_train, user_valid, user_test, num_users, num_items, item_id_map
@@ -21,8 +31,11 @@ def load_data(
         dataset_split = json.load(f)
 
     user_train = {int(k): v for k, v in dataset_split["user_train"].items()}
+    user_train_ts = {int(k): v for k, v in dataset_split.get("user_train_timestamps", {}).items()}
     user_valid = {int(k): v for k, v in dataset_split["user_valid"].items()}
+    user_valid_ts = {int(k): v for k, v in dataset_split.get("user_valid_timestamps", {}).items()}
     user_test = {int(k): v for k, v in dataset_split["user_test"].items()}
+    user_test_ts = {int(k): v for k, v in dataset_split.get("user_test_timestamps", {}).items()}
 
     num_users: int = dataset_split["num_users"]
     num_items: int = dataset_split["num_items"]
@@ -30,7 +43,18 @@ def load_data(
     item_id_map = {int(k): v for k, v in dataset_split["item_id_map"].items()}
 
     print(f"Number Users: {num_users:,}\nNumber Items: {num_items:,}")
-    return user_train, user_valid, user_test, num_users, num_items, item_id_map
+
+    return (
+        user_train,
+        user_valid,
+        user_test,
+        num_users,
+        num_items,
+        item_id_map,
+        user_train_ts,
+        user_valid_ts,
+        user_test_ts,
+    )
 
 
 def load_item_titles(data_dir: str, dataset: str, item_id_map: Dict[int, str]) -> Dict[int, str]:
@@ -43,8 +67,14 @@ def load_item_titles(data_dir: str, dataset: str, item_id_map: Dict[int, str]) -
 
 
 def sample_batch(
-    user_train: Dict[int, List[int]], num_users: int, num_items: int, max_len: int, batch_size: int, num_negs: int
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    user_train: Dict[int, List[int]],
+    num_users: int,
+    num_items: int,
+    max_len: int,
+    batch_size: int,
+    num_negs: int,
+    timestamps: Optional[Dict[int, List[int]]] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
     """
     Constructs a training batch for autoregressive sequence recommendation models like SASRec.
 
@@ -70,6 +100,10 @@ def sample_batch(
     target_pos_seq_batch = np.zeros((batch_size, max_len - 1), dtype=np.int64)
     # NOTE: We sample a set of negatives per user that get reused for each position/target combination
     target_neg_seq_batch = np.zeros((batch_size, num_negs), dtype=np.int64)
+    # Add pre-allocated timestamp batch
+    timestamp_batch: Optional[np.ndarray] = None
+    if timestamps is not None:
+        timestamp_batch = np.zeros((batch_size, max_len - 1), dtype=np.int64)
 
     # each record in the batch is a user sampled
     for i, user_id in enumerate(batch_users):
@@ -117,4 +151,18 @@ def sample_batch(
         target_pos_seq_batch[i, :] = target_user_seq
         target_neg_seq_batch[i, :] = user_negs
 
-    return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch
+        # 7. Build parallel timestamp sequence with same padding/truncation
+        if timestamps is not None:
+            user_ts = timestamps[user_id]
+            ts_len = len(user_ts)
+            if ts_len >= max_len:
+                user_ts = user_ts[ts_len - max_len :]
+            else:
+                user_ts = [0] * (max_len - ts_len) + user_ts
+            input_ts = user_ts[:-1]  # same shift as items
+            if timestamp_batch is not None:
+                timestamp_batch[i, :] = input_ts
+
+    if timestamps is not None:
+        return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch, timestamp_batch
+    return input_seq_batch, target_pos_seq_batch, target_neg_seq_batch, None

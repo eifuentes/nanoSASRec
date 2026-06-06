@@ -1062,3 +1062,23 @@ Estimate batches per epoch: 47
 **Why ReZero helps (a little).** Without scaling, each block dumps an equal-weight contribution onto the residual stream. After 6 blocks the original embedding is ~14% of the final representation — diluted by accumulated block outputs. ReZero initializes each block as identity (alpha=0), so the model first learns good embeddings, then gradually lets each block contribute what it's learned. The residual stream stays dominated by useful signal.
 
 **Why the gains are modest.** ReZero keeps the residual stream healthy, but deeper blocks still have nothing fundamentally new to learn from flat item sequences. The attention mechanism (softmax over Q·K) saturates at 2-3 blocks worth of sequential patterns. Making depth stable is necessary but not sufficient — deeper blocks also need new information to work with.
+
+## v7: Relative Position & Temporal Bias
+
+**What changed:** Replaced absolute position embeddings with two relative attention biases injected directly into attention scores: positional (based on sequence distance) and temporal (based on timestamp deltas). Both use log-bucketed distances, fine-grained for recent interactions, coarse for distant ones. 32 buckets each, shared across all blocks. Also added batched evaluation for faster eval cycles.
+
+**Results on ML-20M (6 blocks, dim=64, 2 heads, 50 epochs, seed=42):**
+
+| Config | Params | Val HR@10 | Val NDCG@10 |
+|--------|--------|-----------|-------------|
+| v6: ReZero + absolute pos | 1,336,780 | 0.9648 | 0.8165 |
+| v7: 1 head, pos bias only | 1,324,076 | 0.9624 | 0.8072 |
+| v7: 2 heads, pos bias only | 1,324,108 | 0.9623 | 0.8099 |
+| v7: 2 heads, pos + temporal | 1,324,172 | 0.9626 | 0.8094 |
+
+**Relative bias didn't beat absolute embeddings here.** This is a capacity mismatch: absolute position embeddings use 12,736 parameters (199 positions × 64 dims) providing rich per-position information. Relative bias uses 64-128 parameters (32 buckets × 1-2 heads). The theoretical cleanliness of separating content from position doesn't compensate for 100x fewer parameters at this model scale.
+
+**Temporal bias didn't add signal on MovieLens.** ML-20M ratings are sparse, avg 144 items per user over years, not session-level clicks. Most time deltas are days or weeks, so the temporal buckets don't capture meaningful session patterns. The Scaling New Frontiers ablation (Table 3) showed temporal > positional, but that used full-catalog eval and HSTU's full stack where the effect is measurable.
+
+**Why v7 still matters:**
+- The relative bias infrastructure (bucketing, per-head biases, temporal deltas) carries directly into v8's HSTU

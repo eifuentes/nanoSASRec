@@ -24,6 +24,7 @@ import zipfile
 from collections import Counter, defaultdict
 from itertools import chain
 from urllib.request import urlretrieve
+from typing import NamedTuple, Dict, List
 
 # ---------------------------------------------------------------------------
 # Download helpers
@@ -153,7 +154,19 @@ def kcore_filter(interactions: list, k: int = 5):
 # ---------------------------------------------------------------------------
 
 
-def reindex_and_split(interactions: list):
+class DatasetSplit(NamedTuple):
+    user_train: Dict[int, List[int]]
+    user_train_ts: Dict[int, List[int]]
+    user_valid: Dict[int, List[int]]
+    user_valid_ts: Dict[int, List[int]]
+    user_test: Dict[int, List[int]]
+    user_test_ts: Dict[int, List[int]]
+    num_users: int
+    num_items: int
+    item_map: Dict
+
+
+def reindex_and_split(interactions: list) -> DatasetSplit:
     """
     Reindex users/items to contiguous integers starting from 1.
     Item 0 is reserved as the padding token.
@@ -176,8 +189,10 @@ def reindex_and_split(interactions: list):
 
     # build sequences per user (preserving temporal order)
     user_seqs_raw = defaultdict(list)
+    user_ts_raw = defaultdict(list)
     for u, i, t in interactions:
         user_seqs_raw[u].append(i)
+        user_ts_raw[u].append(t)
 
     # reindex users and items to contiguous integers starting from 1
     # (0 is reserved as the padding token for items)
@@ -185,33 +200,61 @@ def reindex_and_split(interactions: list):
     all_items = set(chain.from_iterable(user_seqs_raw.values()))
     item_map = {i: idx for idx, i in enumerate(sorted(all_items), 1)}
 
-    # apply reindexing
-    user_seqs = {user_map[u]: [item_map[i] for i in seq] for u, seq in user_seqs_raw.items()}
-
-    num_users = len(user_seqs)
+    # count number of items and users
+    num_users = len(user_seqs_raw)
     num_items = len(item_map)
 
     # leave-one-out split
     # (Kang & McAuley 2018, Section IV-A: "the most recent action for testing,
     #  the second most recent action for validation, and all remaining for training")
     user_train = {}
+    user_train_ts = {}
     user_valid = {}
+    user_valid_ts = {}
     user_test = {}
+    user_test_ts = {}
 
-    for user, seq in user_seqs.items():
+    # apply reindexing and split
+    for user_raw, seq in user_seqs_raw.items():
+        # user sequences mapped and associated timestamps
+        user = user_map[user_raw]
+        # NOTE: timestamps are unix epoch integers (seconds since 1970) — they don't need
+        # reindexing like user/item IDs. They carry forward as-is through the split.
+        ts = user_ts_raw[user_raw]
+        # conduct a split
         if len(seq) < 3:
             # not enough interactions for a proper split
-            user_train[user] = seq
+            # split for timestamps
+            user_train_ts[user] = ts
+            user_valid_ts[user] = []
+            user_test_ts[user] = []
+            # split for sequences
+            user_train[user] = [item_map[i] for i in seq]
             user_valid[user] = []
             user_test[user] = []
         else:
-            user_train[user] = seq[:-2]
-            user_valid[user] = [seq[-2]]
-            user_test[user] = [seq[-1]]
+            # split for timestamps
+            user_train_ts[user] = ts[:-2]
+            user_valid_ts[user] = [ts[-2]]
+            user_test_ts[user] = [ts[-1]]
+            # split for sequences
+            user_train[user] = [item_map[i] for i in seq[:-2]]
+            user_valid[user] = [item_map[seq[-2]]]
+            user_test[user] = [item_map[seq[-1]]]
 
     # item_map: raw_item_id -> reindexed_id
     # callers can invert this to map reindexed IDs back to original IDs
-    return user_train, user_valid, user_test, num_users, num_items, item_map
+    return DatasetSplit(
+        user_train=user_train,
+        user_train_ts=user_train_ts,
+        user_valid=user_valid,
+        user_valid_ts=user_valid_ts,
+        user_test=user_test,
+        user_test_ts=user_test_ts,
+        num_users=num_users,
+        num_items=num_items,
+        item_map=item_map,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +262,7 @@ def reindex_and_split(interactions: list):
 # ---------------------------------------------------------------------------
 
 
-def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path):
+def write_txt(dataset: DatasetSplit, out_path: str):
     """
     Write to the canonical SASRec .txt format:
       user_id item_id_1 item_id_2 ... item_id_n
@@ -229,21 +272,21 @@ def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path)
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
-        for u in range(1, num_users + 1):
-            full_seq = user_train.get(u, []) + user_valid.get(u, []) + user_test.get(u, [])
+        for u in range(1, dataset.num_users + 1):
+            full_seq = dataset.user_train.get(u, []) + dataset.user_valid.get(u, []) + dataset.user_test.get(u, [])
             items_str = " ".join(str(i) for i in full_seq)
             f.write(f"{u} {items_str}\n")
 
     print(f"\n  Wrote {out_path}")
-    print(f"  Users: {num_users}, Items: {num_items}")
+    print(f"  Users: {dataset.num_users}, Items: {dataset.num_items}")
 
     # compute stats
     total_actions = sum(
-        len(user_train.get(u, [])) + len(user_valid.get(u, [])) + len(user_test.get(u, []))
-        for u in range(1, num_users + 1)
+        len(dataset.user_train.get(u, [])) + len(dataset.user_valid.get(u, [])) + len(dataset.user_test.get(u, []))
+        for u in range(1, dataset.num_users + 1)
     )
     print(f"  Total interactions: {total_actions}")
-    print(f"  Avg sequence length: {total_actions / num_users:.1f}")
+    print(f"  Avg sequence length: {total_actions / dataset.num_users:.1f}")
 
 
 # ---------------------------------------------------------------------------
@@ -251,20 +294,23 @@ def write_txt(user_train, user_valid, user_test, num_users, num_items, out_path)
 # ---------------------------------------------------------------------------
 
 
-def write_split(user_train, user_valid, user_test, num_users, num_items, item_map, out_dir):
+def write_split(dataset: DatasetSplit, out_dir: str):
     """Write the split and item ID mapping as JSON for train_v*.py to load."""
     os.makedirs(out_dir, exist_ok=True)
 
     # reverse map: reindexed_id (int) -> raw_item_id (str)
     # this lets train scripts map predictions back to original item IDs
-    reverse_item_map = {str(v): k for k, v in item_map.items()}
+    reverse_item_map = {str(v): k for k, v in dataset.item_map.items()}
 
     split = {
-        "user_train": {str(k): v for k, v in user_train.items()},
-        "user_valid": {str(k): v for k, v in user_valid.items()},
-        "user_test": {str(k): v for k, v in user_test.items()},
-        "num_users": num_users,
-        "num_items": num_items,
+        "user_train": {str(k): v for k, v in dataset.user_train.items()},
+        "user_valid": {str(k): v for k, v in dataset.user_valid.items()},
+        "user_test": {str(k): v for k, v in dataset.user_test.items()},
+        "user_train_timestamps": {str(k): v for k, v in dataset.user_train_ts.items()},
+        "user_valid_timestamps": {str(k): v for k, v in dataset.user_valid_ts.items()},
+        "user_test_timestamps": {str(k): v for k, v in dataset.user_test_ts.items()},
+        "num_users": dataset.num_users,
+        "num_items": dataset.num_items,
         "item_id_map": reverse_item_map,
     }
 
@@ -425,14 +471,14 @@ def main():
 
     # step 3: reindex and split
     print("\n[3/4] Reindexing and splitting ...")
-    user_train, user_valid, user_test, num_users, num_items, item_map = reindex_and_split(filtered)
+    dataset = reindex_and_split(filtered)
 
     # step 4: write outputs
     out_dir = os.path.join(args.data_dir, args.dataset)
     txt_path = os.path.join(out_dir, f"{args.dataset}.txt")
     print("\n[4/4] Writing outputs ...")
-    write_txt(user_train, user_valid, user_test, num_users, num_items, txt_path)
-    write_split(user_train, user_valid, user_test, num_users, num_items, item_map, out_dir)
+    write_txt(dataset, txt_path)
+    write_split(dataset, out_dir)
 
     # write item titles if available (for human-readable predictions)
     titles_writer = ds.get("titles_writer")

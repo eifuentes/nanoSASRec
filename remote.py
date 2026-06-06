@@ -23,7 +23,7 @@ data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)
 @app.function(
     image=image,
     gpu="A10",
-    timeout=3600,
+    timeout=7200,
     volumes={"/app/data": data_volume},
 )
 def train(cmd: str):

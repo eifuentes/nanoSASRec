@@ -2,14 +2,14 @@
 
 import math
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from .model import SASRec
+from .model import SASRec, HSTU
 
 
 def evaluate(
-    model: SASRec,
+    model: Union[SASRec, HSTU],
     user_train: Dict[int, List[int]],
     user_valid: Dict[int, List[int]],
     user_test: Dict[int, List[int]],
@@ -109,7 +109,19 @@ def evaluate(
     return hr_at, ndcg_at
 
 
-def demo(user, model, user_train, user_valid, user_test, num_items, max_len, device, titles):
+def demo(
+    user,
+    model,
+    user_train,
+    user_valid,
+    user_test,
+    num_items,
+    max_len,
+    device,
+    titles,
+    user_train_ts=None,
+    user_valid_ts=None,
+):
     def name(item_id):
         return titles.get(item_id, f"item_{item_id}")
 
@@ -122,22 +134,36 @@ def demo(user, model, user_train, user_valid, user_test, num_items, max_len, dev
         user_seq = [0] * (max_len - len(user_seq)) + user_seq
     ground_truth = user_test[user][0]
 
+    # build parallel timestamp sequence if available
+    has_timestamps = user_train_ts is not None and len(user_train_ts) > 0
+    ts_seq = None
+    if has_timestamps and user_train_ts is not None and user_valid_ts is not None:
+        ts_seq = list(user_train_ts[user]) + user_valid_ts[user]
+        if len(ts_seq) >= max_len:
+            ts_seq = ts_seq[-max_len:]
+        else:
+            ts_seq = [0] * (max_len - len(ts_seq)) + ts_seq
+
     # score all items in catalog
     input_seq = torch.tensor(user_seq, dtype=torch.long, device=device).unsqueeze(0)
     with torch.no_grad():
-        output = model(input_seq)
-        pred = output[:, -1, :]  # last position (1, embedding_dim)
+        if has_timestamps:
+            ts_tensor = torch.tensor(ts_seq, dtype=torch.long, device=device).unsqueeze(0)
+            output = model(input_seq, timestamps=ts_tensor)
+        else:
+            output = model(input_seq)
+        pred = output[:, -1, :]
         all_items = torch.arange(1, num_items + 1, device=device)
-        all_emb = model.item_embedding_table(all_items)  # (num_items, embedding_dim)
-        scores = (pred * all_emb).sum(dim=-1)  # (num_items,)
+        all_emb = model.item_embedding_table(all_items)
+        scores = (pred * all_emb).sum(dim=-1)
 
     # mask out seen items
     seen = set(user_train[user]) | set(user_valid[user])
     for item in seen:
-        scores[item - 1] = float("-inf")  # -1 because items are 1-indexed, scores are 0-indexed
+        scores[item - 1] = float("-inf")
 
     # top 10
-    top10 = (scores.topk(10).indices + 1).cpu().tolist()  # back to 1-indexed
+    top10 = (scores.topk(10).indices + 1).cpu().tolist()
 
     print(f"\n  Prediction demo (user {user}):")
     print(f"    Recent history:  {', '.join(name(i) for i in user_train[user][-5:])}")

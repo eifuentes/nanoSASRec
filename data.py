@@ -486,7 +486,7 @@ def main():
         titles_writer(args.data_dir, out_dir)
 
     print(f"\n{'=' * 60}")
-    print("  Done! Run train_v1.py to start training.")
+    print("  Done! Run train v1 through v8 to start training.")
     print(f"{'=' * 60}\n")
 
 

@@ -43,20 +43,20 @@ DATASETS = ("ml-1m", "ml-20m")
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v7")
-    parser.add_argument("--dataset", type=str, default="ml-1m", choices=DATASETS, help="Dataset to use")
+    parser.add_argument("--dataset", type=str, default="ml-20m", choices=DATASETS, help="Dataset to use")
     parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
     parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
     parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate")
-    parser.add_argument("--dim", type=int, default=50, help="Embedding dimension size")
+    parser.add_argument("--dim", type=int, default=256, help="Embedding dimension size")
     parser.add_argument(
         "--ffn-dim", type=int, default=None, help="feed-forward network hidden dimension size (default: embedding dim)"
     )
     parser.add_argument(
         "--ffn-activation", type=str, default="relu", choices=["relu", "gelu"], help="feed-forward network activation"
     )
-    parser.add_argument("--blocks", type=int, default=2, help="Number of attention blocks")
-    parser.add_argument("--heads", type=int, default=1, help="Number of attention heads")
+    parser.add_argument("--blocks", type=int, default=8, help="Number of attention blocks")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads")
     parser.add_argument(
         "--scale-res",
         action=argparse.BooleanOptionalAction,
@@ -70,10 +70,10 @@ def main():
         help="Relative position and temporal bias (disable with --no-rel-bias)",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
-    parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
-    parser.add_argument("--num-negatives", type=int, default=256, help="Number of negatives to sample for training")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs for training")
+    parser.add_argument("--num-negatives", type=int, default=512, help="Number of negatives to sample for training")
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
-    parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
+    parser.add_argument("--eval-every", type=int, default=10, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()

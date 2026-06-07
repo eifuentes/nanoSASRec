@@ -12,8 +12,9 @@ set -euo pipefail
 
 DEVICE="${1:-cpu}"
 DATASET="ml-20m"
-DIM=64
-BATCH_SIZE=256
+DIM=256
+HEADS=8
+BATCH_SIZE=128
 EPOCHS=50
 EVAL_EVERY=10
 SEED=42
@@ -31,7 +32,7 @@ echo ""
 echo "[Step 0/3] Preprocessing $DATASET..."
 uv run python -u data.py --dataset "$DATASET"
 
-for BLOCKS in 2 4 6; do
+for BLOCKS in 2 4 8 16; do
     LOG_FILE="$LOG_DIR/${DATASET}_blocks${BLOCKS}.log"
     echo ""
     echo "============================================================"
@@ -44,6 +45,7 @@ for BLOCKS in 2 4 6; do
         --device "$DEVICE" \
         --dim "$DIM" \
         --blocks "$BLOCKS" \
+        --heads "$HEADS" \
         --batch-size "$BATCH_SIZE" \
         --epochs "$EPOCHS" \
         --eval-every "$EVAL_EVERY" \

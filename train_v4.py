@@ -34,25 +34,25 @@ DATASETS = ("ml-1m", "ml-20m")
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v4")
-    parser.add_argument("--dataset", type=str, default="ml-1m", choices=DATASETS, help="Dataset to use")
+    parser.add_argument("--dataset", type=str, default="ml-20m", choices=DATASETS, help="Dataset to use")
     parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
-    parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
+    parser.add_argument("--batch-size", type=int, default=256, help="Number of examples per batch")
     parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate")
-    parser.add_argument("--dim", type=int, default=50, help="Embedding dimension size")
+    parser.add_argument("--dim", type=int, default=256, help="Embedding dimension size")
     parser.add_argument(
         "--ffn-dim", type=int, default=None, help="feed-forward network hidden dimension size (default: embedding dim)"
     )
     parser.add_argument(
         "--ffn-activation", type=str, default="relu", choices=["relu", "gelu"], help="feed-forward network activation"
     )
-    parser.add_argument("--blocks", type=int, default=2, help="Number of attention blocks")
-    parser.add_argument("--heads", type=int, default=1, help="Number of attention heads")
+    parser.add_argument("--blocks", type=int, default=8, help="Number of attention blocks")
+    parser.add_argument("--heads", type=int, default=8, help="Number of attention heads")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
-    parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
-    parser.add_argument("--num-negatives", type=int, default=256, help="Number of negatives to sample for training")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs for training")
+    parser.add_argument("--num-negatives", type=int, default=512, help="Number of negatives to sample for training")
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
-    parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
+    parser.add_argument("--eval-every", type=int, default=10, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
@@ -66,7 +66,7 @@ def main():
         print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
 
     # Load pre-processed dataset with train, validation, test splits
-    user_train, user_valid, user_test, num_users, num_items, item_id_map = load_data(args.data_dir, args.dataset)
+    user_train, user_valid, user_test, num_users, num_items, item_id_map, _, _, _ = load_data(args.data_dir, args.dataset)
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
     # load titles for future demos
     titles = load_item_titles(args.data_dir, args.dataset, item_id_map)
@@ -106,7 +106,7 @@ def main():
             # Sampled input user sequences, causal preserving target positives, and user-level negatives for loss calculation
             # input and positive sequence arrays are max_len - 1 length due to autoregressive learning task setup
             # each row in batch_size is a sampled user
-            input_seq, pos_seq, neg_seq = sample_batch(
+            input_seq, pos_seq, neg_seq, _ = sample_batch(
                 user_train,
                 num_users=num_users,
                 num_items=num_items,

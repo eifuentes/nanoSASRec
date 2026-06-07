@@ -12,7 +12,7 @@ set -euo pipefail
 
 DEVICE="${1:-cpu}"
 DATASET="ml-20m"
-DIM=64
+DIM=256
 BATCH_SIZE=256
 EPOCHS=50
 EVAL_EVERY=10

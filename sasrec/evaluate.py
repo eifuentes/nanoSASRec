@@ -5,9 +5,9 @@ import random
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
 
-from .model import HSTU, SASRec
+from .model.hstu import HSTU
+from .model.sasrec import SASRec
 
 
 def _score_full_catalog(

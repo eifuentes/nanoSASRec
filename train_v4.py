@@ -15,6 +15,7 @@ References:
     - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) - Sampled Softmax loss
 """
 
+import random
 import argparse
 from datetime import datetime, timezone
 import math
@@ -227,11 +228,8 @@ def main():
     # Run playful demo to showcase predictions
     if titles:
         # find a user with decent history
-        demo_user = None
-        for u in range(1, num_users + 1):
-            if len(user_train[u]) >= 20:
-                demo_user = u
-                break
+        eligible_users = [u for u in range(1, num_users + 1) if len(user_train[u]) >= 20]
+        demo_user = random.choice(eligible_users) if eligible_users else None
         # run demo
         if demo_user:
             demo(demo_user, model, user_train, user_valid, user_test, num_items, args.max_len, device, titles)

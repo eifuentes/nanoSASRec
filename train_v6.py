@@ -73,7 +73,9 @@ def main():
         print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
 
     # Load pre-processed dataset with train, validation, test splits
-    user_train, user_valid, user_test, num_users, num_items, item_id_map, _, _, _ = load_data(args.data_dir, args.dataset)
+    user_train, user_valid, user_test, num_users, num_items, item_id_map, _, _, _ = load_data(
+        args.data_dir, args.dataset
+    )
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
     # load titles for future demos
     titles = load_item_titles(args.data_dir, args.dataset, item_id_map)

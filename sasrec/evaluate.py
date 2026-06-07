@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
-from .model import SASRec, HSTU
+from .model import HSTU, SASRec
 
 
 def _score_full_catalog(

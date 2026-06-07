@@ -1,2 +1,2 @@
-from .sasrec import SASRec
 from .hstu import HSTU
+from .sasrec import SASRec

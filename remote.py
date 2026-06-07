@@ -12,6 +12,7 @@ Logs are viewable in the Modal dashboard after detaching.
 """
 
 import glob
+
 import modal
 
 app = modal.App("nanoSASRec")
@@ -32,8 +33,8 @@ data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)
     volumes={"/app/data": data_volume},
 )
 def train(cmd: str):
-    import subprocess
     import re
+    import subprocess
 
     # Extract dataset from the training command
     dataset_match = re.search(r"--dataset\s+(\S+)", cmd)

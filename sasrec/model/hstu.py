@@ -17,10 +17,9 @@ References:
 
 import torch
 import torch.nn as nn
-
 import torch.nn.functional as F
 
-from .sasrec import init_weights, bucket_relative_positions, bucket_temporal_distances
+from .sasrec import bucket_relative_positions, bucket_temporal_distances, init_weights
 
 
 class SelfAttention(nn.Module):

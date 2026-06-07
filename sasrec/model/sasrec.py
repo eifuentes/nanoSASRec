@@ -13,10 +13,10 @@ Architecture is identical to v1-v3 with these refinements:
 """
 
 import math
+from typing import Literal, Optional
 
 import torch
 import torch.nn as nn
-from typing import Optional, Literal
 
 
 def init_weights(module: nn.Module, embedding_dim: int):

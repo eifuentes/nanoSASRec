@@ -15,19 +15,18 @@ References:
     - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) - Sampled Softmax loss
 """
 
-import random
 import argparse
-from datetime import datetime, timezone
 import math
+import random
+from datetime import datetime, timezone
 
 import torch
 from torch.optim import Adam
 
 from sasrec import set_seed
 from sasrec.dataset import load_data, load_item_titles, sample_batch
+from sasrec.evaluate import demo, evaluate
 from sasrec.model import SASRec
-from sasrec.evaluate import evaluate, demo
-
 
 # Possible datasets for training
 DATASETS = ("ml-1m", "ml-20m")

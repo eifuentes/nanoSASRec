@@ -15,6 +15,7 @@ image = (
     .add_local_file("train_v4.py", "/app/train_v4.py")
     .add_local_file("train_v6.py", "/app/train_v6.py")
     .add_local_file("train_v7.py", "/app/train_v7.py")
+    .add_local_file("train_v8.py", "/app/train_v8.py")
 )
 
 data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)

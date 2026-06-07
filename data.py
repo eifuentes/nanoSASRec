@@ -23,8 +23,8 @@ import os
 import zipfile
 from collections import Counter, defaultdict
 from itertools import chain
+from typing import Dict, List, NamedTuple
 from urllib.request import urlretrieve
-from typing import NamedTuple, Dict, List
 
 # ---------------------------------------------------------------------------
 # Download helpers

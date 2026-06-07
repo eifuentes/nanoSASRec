@@ -16,17 +16,17 @@ References:
 """
 
 import argparse
-from datetime import datetime, timezone
 import math
+import random
+from datetime import datetime, timezone
 
 import torch
 from torch.optim import Adam
 
 from sasrec import set_seed
 from sasrec.dataset import load_data, load_item_titles, sample_batch
+from sasrec.evaluate import demo, evaluate
 from sasrec.model import SASRec
-from sasrec.evaluate import evaluate, demo
-
 
 # Possible datasets for training
 DATASETS = ("ml-1m", "ml-20m")
@@ -66,7 +66,9 @@ def main():
         print("WARNING: CUDA is available but running on CPU. Use --device cuda for faster training.")
 
     # Load pre-processed dataset with train, validation, test splits
-    user_train, user_valid, user_test, num_users, num_items, item_id_map, _, _, _ = load_data(args.data_dir, args.dataset)
+    user_train, user_valid, user_test, num_users, num_items, item_id_map, _, _, _ = load_data(
+        args.data_dir, args.dataset
+    )
     print("Dataset Lengths:", len(user_train), len(user_valid), len(user_test))
     # load titles for future demos
     titles = load_item_titles(args.data_dir, args.dataset, item_id_map)
@@ -225,11 +227,8 @@ def main():
     # Run playful demo to showcase predictions
     if titles:
         # find a user with decent history
-        demo_user = None
-        for u in range(1, num_users + 1):
-            if len(user_train[u]) >= 20:
-                demo_user = u
-                break
+        eligible_users = [u for u in range(1, num_users + 1) if len(user_train[u]) >= 20]
+        demo_user = random.choice(eligible_users) if eligible_users else None
         # run demo
         if demo_user:
             demo(demo_user, model, user_train, user_valid, user_test, num_items, args.max_len, device, titles)

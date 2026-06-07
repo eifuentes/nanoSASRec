@@ -23,5 +23,6 @@ line-length = 119
 [tool.ruff.lint]
 # Enable Pyflakes (F) and Error (E) codes by default
 # Added "I" for sorted imports
-select = ["E", "F", "I"] 
+select = ["E", "F", "I"]
+ignore = ["E501"] 
 fixable = ["ALL"]

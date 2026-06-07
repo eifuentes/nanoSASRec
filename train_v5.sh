@@ -31,7 +31,7 @@ echo ""
 echo "[Step 0/3] Preprocessing $DATASET..."
 uv run python -u data.py --dataset "$DATASET"
 
-for BLOCKS in 2 4 6; do
+for BLOCKS in 2 4 8 16; do
     LOG_FILE="$LOG_DIR/${DATASET}_blocks${BLOCKS}.log"
     echo ""
     echo "============================================================"

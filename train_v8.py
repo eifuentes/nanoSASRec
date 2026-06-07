@@ -39,7 +39,7 @@ def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v8")
     parser.add_argument("--dataset", type=str, default="ml-20m", choices=DATASETS, help="Dataset to use")
     parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
-    parser.add_argument("--batch-size", type=int, default=256, help="Number of examples per batch")
+    parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
     parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate")
     parser.add_argument("--dim", type=int, default=256, help="Embedding dimension size")

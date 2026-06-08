@@ -86,10 +86,10 @@ def evaluate(
 
         if mode == "valid":
             all_gts.append(user_valid[user][0])
-            all_seens.append(set(user_train[user]) | {user_valid[user][0]})
+            all_seens.append(set(user_train[user]))
         else:
             all_gts.append(user_test[user][0])
-            all_seens.append(set(user_train[user]) | set(user_valid[user]) | {user_test[user][0]})
+            all_seens.append(set(user_train[user]) | set(user_valid[user]))
 
     # Pre-compute all item embeddings once (used by both full-catalog and sampled eval)
     all_item_embs = model.item_embedding_table(

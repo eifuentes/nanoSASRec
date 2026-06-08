@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 import torch
 from torch.optim import Adam
 
-from sasrec import set_seed
+from sasrec import get_git_sha, set_seed
 from sasrec.dataset import load_data, load_item_titles, sample_batch
 from sasrec.evaluate import demo, evaluate
 from sasrec.model import SASRec
@@ -56,6 +56,12 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
+    print(f"\n{'=' * 60}")
+    print(f"  {parser.description} (git: {get_git_sha()})")
+    print(f"{'=' * 60}")
+    for k, v in vars(args).items():
+        print(f"  {k}: {v}")
+    print(f"{'=' * 60}\n")
 
     # set seed across python, numpy, and torch
     set_seed(args.seed)

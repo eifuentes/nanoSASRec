@@ -86,9 +86,11 @@ def evaluate(
 
         if mode == "valid":
             all_gts.append(user_valid[user][0])
-            all_seens.append(set(user_train[user]))
+            # include ground truth in seen so it's not sampled as a negative
+            all_seens.append(set(user_train[user]) | {user_valid[user][0]})
         else:
             all_gts.append(user_test[user][0])
+            # exclude ground truth from seen so it's not masked in full-catalog scoring
             all_seens.append(set(user_train[user]) | set(user_valid[user]))
 
     # Pre-compute all item embeddings once (used by both full-catalog and sampled eval)

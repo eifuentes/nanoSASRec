@@ -1,8 +1,11 @@
 """
-hstu.py - Hierarchical Sequential Transduction Unit for nanoSASRec v8
+hstu.py - Hierarchical Sequential Transduction Unit for nanoSASRec v9+
 
-HSTU architecture (Zhai et al., ICML 2024) replacing SASRec's softmax
-attention with three key changes:
+HSTU architecture (Zhai et al., ICML 2024) with φ1 SwishLayerNorm
+pre-activation on combined UVQK projections.
+
+Core architecture:
+    - Combined UVQK projection with SwishLayerNorm pre-activation (φ1)
     - SiLU activation replaces softmax (unnormalized, intensity-aware attention)
     - LayerNorm after aggregation (stabilizes unscaled SiLU output)
     - U(X) pointwise gating replaces FFN (multiplicative combination of
@@ -30,19 +33,19 @@ class SelfAttention(nn.Module):
         # hyper-parameters
         self.num_heads = num_heads
 
-        # setup the attention and gating projections
-        self.query_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
-        self.key_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
-        self.value_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
-        self.gate_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
-        self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+        # setup the attention (Query, Key, Value) and gating (U) projections and norm in one
+        self.uvqk_proj = nn.Linear(in_features=embedding_dim, out_features=4 * embedding_dim, bias=False)
+        self.uvqk_norm = nn.LayerNorm(normalized_shape=4 * embedding_dim)
 
         # setup attention dropout & layer normalization
         self.attn_norm = nn.LayerNorm(normalized_shape=embedding_dim)
         self.attn_dropout = nn.Dropout(p=dropout_rate)
 
+        # setup the output final projection on it own
+        self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
+
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-        """SiLU Dot-Product Self-Attention.
+        """SiLU Dot-Product Self-Attention with φ1 SwishLayerNorm pre-activation.
 
         Args:
             x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
@@ -60,25 +63,36 @@ class SelfAttention(nn.Module):
         head_dim = embedding_dim // self.num_heads
 
         # project query, key, value, and gate to calculate attention scores
-        # NOTE: each linear layer contains all weights for all heads for efficency
-        #       and later breaks them out via reshaping
+        # NOTE: single linear projection maps input to 4x embedding dim, then
+        # SwishLayerNorm adds nonlinearity before splitting into four roles
+        uvqk_combined = self.uvqk_proj(x)  # (dim → 4*dim) so shape(batch_size, seq_len, embedding_dim * 4)
+        # NOTE: φ1 pre-activation: SwishLayerNorm = x * sigmoid(LayerNorm(x))
+        # LayerNorm normalizes across all 4*dim dimensions jointly, so each
+        # projection's statistics depend on the others. sigmoid gates each
+        # dimension between 0 and 1, and multiplying by the original lets the
+        # model decide how much of each dimension to keep. This makes Q, K, V, U
+        # nonlinear functions of the input before they enter their respective roles.
+        uvqk_combined = torch.multiply(
+            uvqk_combined, torch.sigmoid(self.uvqk_norm(uvqk_combined))
+        )  # (batch_size, seq_len, embedding_dim * 4)
+        # unpack each projection from the combined SwishLayerNorm output
+        gate, value, query, key = uvqk_combined.chunk(4, dim=-1)  # each shape(batch_size, seq_len, embedding_dim)
 
-        # query linear layer transforms each position into "this is what I am looking for?"
-        query = self.query_proj(x)  # (batch_size, seq_len, embedding_dim)
+        # query represents each position into "this is what I am looking for?"
+        # reshaped here for multi-head attention
         query = query.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
 
-        # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
-        key = self.key_proj(x)  # (batch_size, seq_len, embedding_dim)
+        # key represents each position into "this is what I advertise about myself so queries can find me?"
+        # reshape here for multi-head attention and subsequent transpose for matmul with query later
         key = key.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
-        # transpose key tensor for future matrix multiply so dimensions line up with query tensor
         key = key.transpose(-2, -1)  # (batch_size, num_heads, head_dim, seq_len)
 
-        # value linear layer transforms each position into "this is the information I pass along when attended to?"
-        value = self.value_proj(x)  # (batch_size, seq_len, embedding_dim)
+        # value represents each position into "this is the information I pass along when attended to?"
+        # reshape here for multi-head attention
         value = value.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
@@ -122,12 +136,11 @@ class SelfAttention(nn.Module):
         # Normalize attention aggregation due to unscaled SiLU operation earlier to stablize training
         attn_normed = self.attn_norm(attn_agg)  # (batch_size, seq_len, embedding_dim)
 
-        # apply gating factor on attention based on original input
-        gate = self.gate_proj(x)  # (batch_size, seq_len, embedding_dim)
-        # applied element wise multiplication to scale each attention position by its gate
+        # U(X) pointwise gating: multiply attended context with gate signal
+        # gate is already a nonlinear function of x (via SwishLayerNorm above)
         attn_gated = torch.multiply(attn_normed, gate)  # (batch_size, seq_len, embedding_dim)
 
-        # Linearly combine everything to product a final attention sequence embedding representation
+        # project gated output to final embedding
         return self.out_proj(attn_gated)  # (batch_size, seq_len, embedding_dim)
 
 

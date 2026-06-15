@@ -412,3 +412,27 @@ Three things change from SASRec's Transformer block:
 **The bigger finding.** Our v6 (0.3376) beats Meta's HSTU (0.3273) without changing the attention mechanism at all. The gap between "old SASRec" and "HSTU" in Meta's paper was mostly training improvements, not architecture. When you stack those same improvements onto SASRec (which v1-v6 did), the gap disappears.
 
 **What's next.** Our HSTU is missing two pieces from Meta's full implementation that are likely where the real gains live. v9 adds nonlinearity to the projection layers. v10 changes how the model trains, giving it ~100x more supervision signal per sequence. Details in those sections.
+
+## v9: φ1 SwishLayerNorm Pre-Activation
+
+### Run
+
+`uv run python train_v9.py --device cuda`
+
+### Takeaway
+
+**What changed.** Combined the four separate Q, K, V, U linear projections into a single projection (dim to 4*dim), then applied SwishLayerNorm before splitting them apart. SwishLayerNorm is `x * sigmoid(LayerNorm(x))`: LayerNorm normalizes the combined projection, sigmoid gates each dimension between 0 and 1, and multiplying by the original lets the model decide how much to keep.
+
+This matters because the projections must be combined. LayerNorm computes statistics (mean, variance) across the full 4*dim dimension, so Q's normalization depends on what U, V, and K look like. Separate projections with separate LayerNorms would be a different operation.
+
+The result is that Q, K, V, U become nonlinear functions of the input before they interact. In v8, attention scores were a bilinear form (linear Q dotted with linear K). In v9, both Q and K pass through a nonlinearity first, giving the model a richer set of patterns it can represent.
+
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+
+| Config | Params | Test HR@10 | Test NDCG@10 |
+|--------|--------|------------|--------------|
+| v8 (HSTU, separate projections) | 7.9M | 0.3204 | 0.1918 |
+| **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3272** | **0.1967** |
+| Meta's HSTU | — | 0.3273 | 0.1895 |
+
+**φ1 closed the gap to Meta's HSTU.** v9 matches their HR (0.3272 vs 0.3273) and beats their NDCG (0.1967 vs 0.1895). With fewer parameters than v8 (the combined projection replaces four separate ones, while the LayerNorm adds minimal overhead).

@@ -38,6 +38,7 @@ See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with tra
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero > 16 blocks without |
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Didn't help at this scale (honest negative) |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
+| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
 
 Each file is runnable independently. Read them in order for the full progression, or jump to any step.
 
@@ -61,7 +62,7 @@ Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) fro
 | v6 (8 blocks) | + ReZero | 0.3376 | 0.2033 |
 | v7 (8 blocks) | + relative bias | 0.3208 | 0.1927 |
 | v8 (8 blocks) | HSTU architecture | 0.3204 | 0.1918 |
-| v9 | - | - | - |
+| v9 (8 blocks) | + φ1 pre-activation | 0.3272 | 0.1967 |
 | v10 | - | - | - |
 
 Compared to Meta's published results (Zhai et al., ICML 2024):

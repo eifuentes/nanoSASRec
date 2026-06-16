@@ -18,14 +18,18 @@ def _score_full_catalog(
 ) -> torch.Tensor:
     """Score a single user's prediction against all items in the catalog.
 
+    Pure scoring logic: matmul + seen masking. Any embedding normalization
+    (e.g., L2 norm for cosine similarity) should be applied by the caller
+    before passing tensors here.
+
     Args:
-        pred: (embedding_dim,) — the user's predicted embedding
-        all_item_embs: (num_items, embedding_dim) — pre-computed item embeddings
+        pred: (embedding_dim,) the user's predicted embedding
+        all_item_embs: (num_items, embedding_dim) pre-computed item embeddings
         seen: set of item IDs to mask (already interacted)
         device: torch device
 
     Returns:
-        scores: (num_items,) — score per item, seen items set to -inf
+        scores: (num_items,) score per item, seen items set to -inf
     """
     scores = torch.matmul(pred, all_item_embs.T)  # (num_items,)
     # mask seen items using tensor indexing (avoids slow Python loop on GPU)
@@ -48,6 +52,7 @@ def evaluate(
     eval_batch_size: int = 256,
     user_train_ts: Optional[Dict[int, List[int]]] = None,
     user_valid_ts: Optional[Dict[int, List[int]]] = None,
+    l2_norm: bool = False,
 ) -> Tuple[float, float]:
     hrs, ndcgs = [], []
     eval_max_len = max_len - 1
@@ -97,6 +102,9 @@ def evaluate(
     all_item_embs = model.item_embedding_table(
         torch.arange(1, num_items + 1, device=device)
     )  # (num_items, embedding_dim)
+    # L2 normalize item embeddings upstream so all downstream scoring uses cosine similarity
+    if l2_norm:
+        all_item_embs = torch.nn.functional.normalize(all_item_embs, p=2, dim=-1, eps=1e-6)
 
     # Process in batches
     for start in range(0, num_users, eval_batch_size):
@@ -114,6 +122,10 @@ def evaluate(
         else:
             output_batch = model(input_batch)
         pred_batch = output_batch[:, -1, :]  # (batch, embedding_dim)
+
+        # L2 normalize output embeddings upstream so all downstream scoring uses cosine similarity
+        if l2_norm:
+            pred_batch = torch.nn.functional.normalize(pred_batch, p=2, dim=-1, eps=1e-6)
 
         if full_catalog:
             # Full-catalog: score all items for all users in one matmul
@@ -177,6 +189,7 @@ def demo(
     titles: Dict[int, str],
     user_train_ts: Optional[Dict[int, List[int]]] = None,
     user_valid_ts: Optional[Dict[int, List[int]]] = None,
+    l2_norm: bool = False,
 ):
     def name(item_id):
         return titles.get(item_id, f"item_{item_id}")
@@ -213,6 +226,12 @@ def demo(
     # full-catalog scoring using shared helper
     all_items = torch.arange(1, num_items + 1, device=device)
     all_item_embs = model.item_embedding_table(all_items)
+
+    # L2 normalize upstream so _score_full_catalog uses cosine similarity
+    if l2_norm:
+        pred = torch.nn.functional.normalize(pred, p=2, dim=-1, eps=1e-6)
+        all_item_embs = torch.nn.functional.normalize(all_item_embs, p=2, dim=-1, eps=1e-6)
+
     seen = set(user_train[user]) | set(user_valid[user])
     scores = _score_full_catalog(pred.squeeze(0), all_item_embs, seen, device)
 

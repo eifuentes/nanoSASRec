@@ -44,6 +44,9 @@ def main():
     parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
     parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate")
+    parser.add_argument(
+        "--horizon", type=int, default=10, help="Max future prediction horizon for Dense All Action loss"
+    )
     parser.add_argument("--dim", type=int, default=256, help="Embedding dimension size")
     parser.add_argument("--blocks", type=int, default=8, help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads")
@@ -109,6 +112,10 @@ def main():
     seq_len = args.max_len - 1  # due to training setup of input to positive target
     future_target_mask = torch.triu(
         torch.ones(seq_len, seq_len, device=device), diagonal=0
+    ).bool()  # (seq_len, seq_len)
+    # narrows the future all action view on the next K items on the horizon
+    future_target_mask &= ~torch.triu(
+        torch.ones(seq_len, seq_len, device=device), diagonal=args.horizon
     ).bool()  # (seq_len, seq_len)
 
     # Training loop

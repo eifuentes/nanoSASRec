@@ -436,3 +436,32 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 | Meta's HSTU | — | 0.3273 | 0.1895 |
 
 **φ1 closed the gap to Meta's HSTU.** v9 matches their HR (0.3272 vs 0.3273) and beats their NDCG (0.1967 vs 0.1895). With fewer parameters than v8 (the combined projection replaces four separate ones, while the LayerNorm adds minimal overhead).
+
+## Appendix: Dense All Action (train_v11.py)
+
+### Run
+
+`uv run python train_v11.py --device cuda`
+`uv run python train_v11.py --device cuda --horizon 10`
+
+### Takeaway
+
+**What changed.** Instead of each position predicting only the next item, every position predicts ALL future items in the sequence. Position 3 predicts items 4, 5, 6, ... all the way to the end. This gives roughly 100x more gradient signal per sequence without changing the model.
+
+The implementation is memory-efficient: precompute `logsumexp` of negative scores once per position, then reuse it for every future target. Total extra memory is one (batch, seq_len, seq_len) tensor.
+
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+
+| Variant | HR@10 | NDCG@10 |
+|---------|-------|---------|
+| v9 (next-item only) | 0.3272 | 0.1967 |
+| Dense All Action (K=10 horizon) | 0.2502 | 0.1376 |
+| Dense All Action (uncapped) | 0.1300 | 0.0683 |
+
+**Why it doesn't work for next-item evaluation.** For a sequence of length 199, the uncapped loss has roughly 10,000 valid (position, target) pairs. Only 199 of those are next-item predictions (the diagonal). The other 9,800 are far-future predictions. The model gets 50x more gradient telling it "predict what happens 10-50 steps from now" than "predict the next item."
+
+Capping the horizon at K=10 helped (HR nearly doubled from 0.1300 to 0.2502) because the next-item signal went from 1% to 10% of the total loss. But even at K=10, 90% of the gradient still pulls away from next-item accuracy.
+
+**What Dense All Action is actually for.** PinnerFormer introduced this technique for temporal embedding stability at Pinterest. If the model can predict not just the next item but all future items, then user embeddings computed today are still useful for serving recommendations tomorrow. The evaluation in PinnerFormer reflects this: they measure whether embeddings from 24 hours ago still produce good recommendations today. That's a different objective than next-item HR@10.
+
+**Meta's open source HSTU does not use Dense All Action.** Their published ML-20M benchmarks (HR@10 0.3273) use standard next-item sampled softmax loss, the same as our v9. Dense All Action is referenced in the HSTU paper conceptually but is not part of their benchmark code.

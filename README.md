@@ -39,6 +39,7 @@ See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with tra
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Didn't help at this scale (honest negative) |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
+| `train_v11.py` | Dense All Action loss (appendix) | ML-20M | Optimizes different objective than next-item eval |
 
 Each file is runnable independently. Read them in order for the full progression, or jump to any step.
 

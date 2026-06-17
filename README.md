@@ -2,6 +2,8 @@
 
 The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
+The entire codebase is ~2,000 lines of Python across 10 training scripts and 3 shared modules. No file is longer than 300 lines.
+
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every file is self-contained, every design decision cites a paper, and every step has a concrete reproduction target.
 
 ## Why this exists
@@ -22,9 +24,22 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
+Train v1 on MovieLens 1M in ~7 minutes on a MacBook. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+
 ## What to expect
 
 See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
+
+## What it looks like
+
+```
+Recent history:  Toy Story (1995), Bug's Life (1998), Antz (1998)
+Ground truth:    Pocahontas (1995)
+Model top-3:
+  1. Lion King, The (1994)
+  2. Little Mermaid, The (1989)
+  3. Jungle Book, The (1967)
+```
 
 ## Versions
 

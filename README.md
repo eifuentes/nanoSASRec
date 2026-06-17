@@ -39,6 +39,7 @@ See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with tra
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Didn't help at this scale (honest negative) |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
+| `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
 | `train_v11.py` | Dense All Action loss (appendix) | ML-20M | Optimizes different objective than next-item eval |
 
 Each file is runnable independently. Read them in order for the full progression, or jump to any step.
@@ -64,7 +65,7 @@ Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) fro
 | v7 (8 blocks) | + relative bias | 0.3208 | 0.1927 |
 | v8 (8 blocks) | HSTU architecture | 0.3204 | 0.1918 |
 | v9 (8 blocks) | + φ1 pre-activation | 0.3272 | 0.1967 |
-| v10 | - | - | - |
+| v10 (8 blocks) | + temp + L2 + collision | 0.3200 | 0.1911 |
 
 Compared to Meta's published results (Zhai et al., ICML 2024):
 

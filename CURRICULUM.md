@@ -437,6 +437,39 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 **φ1 closed the gap to Meta's HSTU.** v9 matches their HR (0.3272 vs 0.3273) and beats their NDCG (0.1967 vs 0.1895). With fewer parameters than v8 (the combined projection replaces four separate ones, while the LayerNorm adds minimal overhead).
 
+## v10: Training Alignment
+
+### Run
+
+`uv run python train_v10.py --device cuda`
+
+### Takeaway
+
+**What changed.** Three training details from Meta's production HSTU configs, applied on top of v9's architecture:
+
+**L2 normalization.** Normalize both the model's output embeddings and the item embeddings to unit length before scoring. This turns dot products into cosine similarity, bounded between [-1, 1]. Without it, the model can give popular items larger embedding norms so they score high regardless of relevance. With it, all items compete on direction (angular similarity) alone.
+
+**Temperature scaling.** Divide all logits by a temperature parameter (0.05) before the softmax loss. With cosine similarity in [-1, 1], dividing by 0.05 scales logits to [-20, 20]. This forces the softmax to commit hard to its top picks. A higher temperature (softer distribution) lets the model be vague about rankings.
+
+**Collision masking.** If a randomly sampled negative happens to be the same item as the positive target, mask it to negative infinity before the loss. Without this, the model occasionally gets penalized for scoring a correct item highly. With 512 negatives out of 18,345 items, collisions happen about 2.8% of the time per position.
+
+These are standard techniques in production recommendation systems. Meta uses them across all their published configs.
+
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+
+| Config | HR@10 | NDCG@10 |
+|--------|-------|---------|
+| v9 (raw dot products) | 0.3272 | 0.1967 |
+| v10 temp=0.05 | 0.3200 | 0.1911 |
+
+**These techniques didn't help at our scale.** v10 slightly underperformed v9 across all temperatures tested. The likely reason is the negative sampling strategy: we use random negatives, Meta uses in-batch negatives (the positive items from other users in the same batch).
+
+Random negatives are "easy" because they're mostly items from completely different categories. The model quickly learns to reject them and doesn't need temperature sharpening to separate them. In-batch negatives are "hard" because they're items other users actually interacted with, forcing finer distinctions. That's where temperature sharpening and cosine similarity pay off.
+
+L2 normalization also removes a degree of freedom. Without it, the model can use embedding magnitude as a signal (popular items naturally develop larger norms). At Meta's production scale with billions of interactions, this prevents unhealthy popularity bias. At ML-20M scale, the popularity signal is useful and removing it hurts.
+
+**The lesson for practitioners.** These training details are not universally beneficial. They're coupled to the full training pipeline, particularly the negative sampling strategy and catalog scale. Adopting Meta's config without adopting their in-batch negative mining won't reproduce their results.
+
 ## Appendix: Dense All Action (train_v11.py)
 
 ### Run

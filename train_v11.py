@@ -13,7 +13,7 @@ affects training only: the model learns richer representations by
 predicting all future items, but at inference we still use the last
 position to predict the next item.
 
-Run: `uv run python train_v10.py --device cuda`
+Run: `uv run python train_v11.py --device cuda --horizon 10`
 
 References:
     - Pancha, Zhai et al., KDD 2022 (arxiv: 2205.04507) - PinnerFormer, Dense All Action loss
@@ -160,10 +160,10 @@ def main():
             # Instead of each position predicting only its next item,
             # every position predicts ALL future items in the sequence.
             #
-            # v1-v9 loss (1 target per position):
+            # v1-v10 loss (1 target per position):
             #   position 3 (saw A,B,C) -> predicts D
             #
-            # v10 loss (all future targets per position):
+            # v11 loss (all future targets per position):
             #   position 3 (saw A,B,C) -> predicts D, E, F, G
             #
             # This gives more gradient signal per sequence.

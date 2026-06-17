@@ -22,6 +22,10 @@ declare -a COMMANDS=(
     "python -u train_v7.py --dataset ml-20m"
     # v8: HSTU
     "python -u train_v8.py --dataset ml-20m"
+    # v9: HSTU + phi1 SwishLayerNorm
+    "python -u train_v9.py --dataset ml-20m"
+    # v10: training alignment (temperature + L2 norm + collision masking)
+    "python -u train_v10.py --dataset ml-20m"
 )
 
 for cmd in "${COMMANDS[@]}"; do

@@ -91,3 +91,10 @@ dependencies = [
     "numpy>=1.24",
 ]
 ```
+
+## Roadmap
+
+- **In-batch negatives**: use positive items from other users in the batch as harder negatives. Likely the missing piece for v10's temperature + L2 norm to work.
+- **Production optimization**: KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
+- **Beauty dataset**: second benchmark to validate results generalize beyond MovieLens.
+- **Stochastic Length training**: randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).

@@ -29,6 +29,14 @@ from torch.optim import Adam
 DATASETS = ("ml-1m", "ml-20m")
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def load_data(
     data_dir: str, dataset: str
 ) -> Tuple[Dict[int, List[int]], Dict[int, List[int]], Dict[int, List[int]], int, int, Dict[int, str]]:
@@ -78,9 +86,6 @@ def sample_batch(
     memory-contiguous, which is required for efficient GPU processing.
     PyTorch later handles these NumPy arrays very gracefully.
     """
-    # Initialize the modern NumPy random generator (faster than np.random.randint)
-    rng = np.random.default_rng()
-
     # 1. Sample users
     # NOTE: random.sample is 'without replacement', gives unique users
     batch_users = random.sample(range(1, num_users + 1), k=batch_size)
@@ -123,9 +128,10 @@ def sample_batch(
         count = 0
         while count < num_negs:
             # Sample a block of random IDs in C-speed, then filter in python.
-            # NOTE: `num_items + 1` is due to exclusive nature of rng.integers on the high side so all item ids are included
-            # NOTE: we start with 1 in rng.integers since 0 is reserved for the padding token in the item ID lookups
-            samples = rng.integers(1, num_items + 1, size=num_negs - count)
+            # Uses NumPy's global RNG so set_seed(...) controls sampling.
+            # NOTE: `num_items + 1` is due to exclusive nature of randint on the high side so all item ids are included
+            # NOTE: we start with 1 in randint since 0 is reserved for the padding token in the item ID lookups
+            samples = np.random.randint(1, num_items + 1, size=num_negs - count)
             for s in samples:
                 if s not in seen_items:
                     user_negs[count] = s
@@ -447,7 +453,11 @@ def main():
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
     parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
+
+    # set seed across python, numpy, and torch
+    set_seed(args.seed)
 
     # numerical stability for sigmoid in loss function
     eps = 1e-7

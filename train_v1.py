@@ -27,6 +27,14 @@ from torch.optim import Adam
 DATASETS = ("ml-1m", "ml-20m")
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def load_data(
     data_dir: str, dataset: str
 ) -> Tuple[Dict[int, List[int]], Dict[int, List[int]], Dict[int, List[int]], int, int, Dict[int, str]]:
@@ -92,8 +100,8 @@ def sample_batch(
         input_user_seq, target_user_seq = user_seq[:-1], user_seq[1:]  # each seq is max_len - 1
         # select random negatives from unseen items throughout entire sequence history
         # TODO: can be optimized to be O(1) using `random.randint(1, num_items)` and checking if seen
-        item_neg_pool = set(range(1, num_items + 1)) - set(user_seq)
-        random_neg_seq = random.sample(list(item_neg_pool), k=len(target_user_seq))
+        item_neg_pool = sorted(set(range(1, num_items + 1)) - set(user_seq))
+        random_neg_seq = random.sample(item_neg_pool, k=len(target_user_seq))
         # move list of ints into numpy arrays
         input_seq_batch[i, :] = input_user_seq
         target_pos_seq_batch[i, :] = target_user_seq
@@ -417,7 +425,11 @@ def main():
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
     parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
+
+    # set seed across python, numpy, and torch
+    set_seed(args.seed)
 
     # Determine device
     device = torch.device(args.device)

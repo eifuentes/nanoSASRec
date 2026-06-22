@@ -142,7 +142,7 @@ Near-term cleanup work, in the order we plan to attack it:
 1. **Core correctness**
    - [x] Fix relative position and temporal distance signs so causal past items map to meaningful buckets instead of all bucket `0`.
 2. **Reproducibility and benchmark commands**
-   - Make seeded negative sampling deterministic, or document the current nondeterminism explicitly.
+   - [x] Make seeded negative sampling deterministic.
    - [x] Fix `train_v5.sh` comments and arguments so it matches the benchmark setup: 2/4/8/16 blocks and `--num-negatives 512`.
 3. **Curriculum/doc coherence**
    - [x] Update stale counts and version references so v1-v10 are the official path and v11 is appendix/WIP.

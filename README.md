@@ -148,7 +148,7 @@ Near-term cleanup work, in the order we plan to attack it:
    - [x] Update stale counts and version references so v1-v10 are the official path and v11 is appendix/WIP.
    - [x] Clarify `train_v8.py` as the local first HSTU implementation and `sasrec/model/hstu.py` as the v9+ shared HSTU.
    - [x] Fix the v10/v11 narrative mixup around dense supervision.
-   - Clarify which versions intentionally use the readable but numerically unstable sampled-softmax formula.
+   - [x] Clarify which versions intentionally use the readable but numerically unstable sampled-softmax formula.
 4. **Reader polish**
    - Tighten run instructions so a beginner can execute the curriculum in order without hidden assumptions.
    - Keep the public story focused on sequential recommenders, SASRec, HSTU, and benchmark interpretation.

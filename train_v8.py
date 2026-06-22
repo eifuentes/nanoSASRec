@@ -398,7 +398,7 @@ def main():
 
             # Calculate Sampled Softmax Loss (SSML)
             # Loss: -log( exp(score_pos) / (exp(score_pos) + sum(exp(score_neg))) )
-            # Below is a stable version of the formula above
+            # Stable logsumexp form of the same sampled-softmax objective.
             # stack positive and negatives together: (batch_size, seq_len, 1 + num_negs)
             logits_seq = torch.cat([pos_logits_seq.unsqueeze(dim=-1), neg_logits_seq], dim=-1)
             # logsumexp across candidates, then subtract the positive score

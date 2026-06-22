@@ -236,7 +236,7 @@ class HSTU(nn.Module):
 
         # calculate relative position biases to use later
         positions = torch.arange(seq_len, device=x.device)
-        relative_position_distances = positions.unsqueeze(0) - positions.unsqueeze(1)  # (seq_len, seq_len)
+        relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
         relative_position_buckets = bucket_relative_positions(
             relative_position_distances, num_buckets=self.num_relative_bias_buckets
         )
@@ -253,7 +253,7 @@ class HSTU(nn.Module):
         # Unlike positional distances (same for all users), temporal distances are
         # per-user since each user has different interaction timestamps.
         # Shape is (batch_size, seq, seq) not (seq, seq), each user gets unique biases.
-        time_deltas = timestamps.unsqueeze(1) - timestamps.unsqueeze(2)  # (batch_size, seq_len, seq_len)
+        time_deltas = timestamps.unsqueeze(2) - timestamps.unsqueeze(1)  # (batch_size, seq_len, seq_len)
         time_buckets = bucket_temporal_distances(time_deltas, num_buckets=self.num_relative_bias_buckets)
         temporal_biases = self.temporal_bias_embedding_table(time_buckets)
         # NOTE: temporal bias is (batch_size, num_heads, seq_len, seq_len)

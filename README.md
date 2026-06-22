@@ -2,7 +2,7 @@
 
 The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
-The entire codebase is ~2,000 lines of Python across 10 training scripts and 3 shared modules. No file is longer than 300 lines.
+The official curriculum is 10 training scripts and 3 shared modules.
 
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every file is self-contained, every design decision cites a paper, and every step has a concrete reproduction target.
 
@@ -28,7 +28,7 @@ Train v1 on MovieLens 1M in ~7 minutes on a MacBook. Reproduce Meta's HSTU Movie
 
 ## What to expect
 
-See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
+See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of the 10 official versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
 
 ## What it looks like
 
@@ -55,9 +55,10 @@ Model top-3:
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
-| `train_v11.py` | Dense All Action loss (appendix) | ML-20M | Optimizes different objective than next-item eval |
 
-Each file is runnable independently. Read them in order for the full progression, or jump to any step.
+Each file is runnable independently. Read v1-v10 in order for the full progression, or jump to any step.
+
+`train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
 ## Datasets
 
@@ -109,7 +110,26 @@ dependencies = [
 
 ## Roadmap
 
+### Cleanup Backlog
+
+Near-term cleanup work, in the order we plan to attack it:
+
+1. **Core correctness**
+   - [x] Fix relative position and temporal distance signs so causal past items map to meaningful buckets instead of all bucket `0`.
+2. **Reproducibility and benchmark commands**
+   - Make seeded negative sampling deterministic, or document the current nondeterminism explicitly.
+   - [x] Fix `train_v5.sh` comments and arguments so it matches the benchmark setup: 2/4/8/16 blocks and `--num-negatives 512`.
+3. **Curriculum/doc coherence**
+   - [x] Update stale counts and version references so v1-v10 are the official path and v11 is appendix/WIP.
+   - [x] Clarify `train_v8.py` as the local first HSTU implementation and `sasrec/model/hstu.py` as the v9+ shared HSTU.
+   - [x] Fix the v10/v11 narrative mixup around dense supervision.
+   - Clarify which versions intentionally use the readable but numerically unstable sampled-softmax formula.
+4. **Reader polish**
+   - Tighten run instructions so a beginner can execute the curriculum in order without hidden assumptions.
+   - Keep the public story focused on sequential recommenders, SASRec, HSTU, and benchmark interpretation.
+
+### Future Work
+
 - **In-batch negatives**: use positive items from other users in the batch as harder negatives. Likely the missing piece for v10's temperature + L2 norm to work.
 - **Production optimization**: KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
-- **Beauty dataset**: second benchmark to validate results generalize beyond MovieLens.
 - **Stochastic Length training**: randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).

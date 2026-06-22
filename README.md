@@ -24,7 +24,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-Train v1 on MovieLens 1M in ~7 minutes on a MacBook. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
 
 ## What to expect
 
@@ -134,26 +134,6 @@ You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai
 This project is not sponsored.
 
 ## Roadmap
-
-### Cleanup Backlog
-
-Near-term cleanup work, in the order we plan to attack it:
-
-1. **Core correctness**
-   - [x] Fix relative position and temporal distance signs so causal past items map to meaningful buckets instead of all bucket `0`.
-2. **Reproducibility and benchmark commands**
-   - [x] Make seeded negative sampling deterministic.
-   - [x] Fix `train_v5.sh` comments and arguments so it matches the benchmark setup: 2/4/8/16 blocks and `--num-negatives 512`.
-3. **Curriculum/doc coherence**
-   - [x] Update stale counts and version references so v1-v10 are the official path and v11 is appendix/WIP.
-   - [x] Clarify `train_v8.py` as the local first HSTU implementation and `sasrec/model/hstu.py` as the v9+ shared HSTU.
-   - [x] Fix the v10/v11 narrative mixup around dense supervision.
-   - [x] Clarify which versions intentionally use the readable but numerically unstable sampled-softmax formula.
-4. **Reader polish**
-   - Tighten run instructions so a beginner can execute the curriculum in order without hidden assumptions.
-   - Keep the public story focused on sequential recommenders, SASRec, HSTU, and benchmark interpretation.
-
-### Future Work
 
 - **In-batch negatives**: use positive items from other users in the batch as harder negatives. Likely the missing piece for v10's temperature + L2 norm to work.
 - **Production optimization**: KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.

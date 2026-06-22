@@ -2,6 +2,8 @@
 
 Curriculum walkthrough from v1 to v10.
 
+Each step comes with commands to reproduce the results. Change `--device` to `cpu`, `mps`, or `cuda` based on the hardware available to you.
+
 ## Differences
 
 Here are known differences from the original SASRec implementation.

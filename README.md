@@ -2,7 +2,7 @@
 
 The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
-The entire codebase is ~2,000 lines of Python across 10 training scripts and 3 shared modules. No file is longer than 300 lines.
+The official curriculum is 10 training scripts and 3 shared modules.
 
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every file is self-contained, every design decision cites a paper, and every step has a concrete reproduction target.
 
@@ -24,11 +24,11 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-Train v1 on MovieLens 1M in ~7 minutes on a MacBook. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
 
 ## What to expect
 
-See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of all 10 versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
+See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of the 10 official versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
 
 ## What it looks like
 
@@ -55,9 +55,10 @@ Model top-3:
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
-| `train_v11.py` | Dense All Action loss (appendix) | ML-20M | Optimizes different objective than next-item eval |
 
-Each file is runnable independently. Read them in order for the full progression, or jump to any step.
+Each file is runnable independently. Read v1-v10 in order for the full progression, or jump to any step.
+
+`train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
 ## Datasets
 
@@ -107,9 +108,33 @@ dependencies = [
 ]
 ```
 
+If you plan to edit the repo, install the dev tools and run Ruff before committing changes:
+
+```bash
+uv sync --group dev
+uv run ruff format .
+uv run ruff check .
+```
+
+## Remote GPU Training
+
+For longer ML-20M runs, `remote.py` can launch any `train_v*.py` script on [Modal](https://modal.com/). Create a Modal account and authenticate locally before using it.
+
+```bash
+uv sync --group cloud
+uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20m"
+```
+
+`remote.py` automatically preprocesses the requested dataset, mounts the local training scripts and `sasrec/` package, adds `--device cuda`, and persists downloaded data in a _Modal Volume_.
+
+If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
+
+You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run.
+
+This project is not sponsored.
+
 ## Roadmap
 
 - **In-batch negatives**: use positive items from other users in the batch as harder negatives. Likely the missing piece for v10's temperature + L2 norm to work.
 - **Production optimization**: KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
-- **Beauty dataset**: second benchmark to validate results generalize beyond MovieLens.
 - **Stochastic Length training**: randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).

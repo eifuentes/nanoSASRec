@@ -4,8 +4,8 @@ Every design decision in this repo traces back to a specific paper. This documen
 
 The story: SASRec replaces RNNs with Transformers, BERT4Rec challenges it and the
 community splits, the loss function is identified as the real problem, SASRec's depth-scaling
-failure is diagnosed, PinnerFormer bridges to production, and HSTU fixes everything and
-unlocks trillion-parameter scale.
+failure is diagnosed, PinnerFormer bridges to production, and HSTU carries the line into
+trillion-parameter scale.
 
 ## Foundation (2016-2018)
 

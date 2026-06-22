@@ -1,4 +1,4 @@
-.PHONY: clean clean-data clean-runs clean-all fresh
+.PHONY: clean-data clean-runs clean-cache clean-all fresh
 
 # just nuke downloaded datasets (keep trained models)
 clean-data:

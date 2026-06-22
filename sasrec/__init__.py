@@ -5,6 +5,11 @@ import torch
 
 
 def set_seed(seed: int):
+    """Seed Python, NumPy, and Torch RNGs for reproducible training runs.
+
+    This controls random user sampling, negative sampling via NumPy's global
+    RNG, model initialization, and CUDA RNGs when available.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

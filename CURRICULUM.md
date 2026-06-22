@@ -1,6 +1,8 @@
 # nanoSASRec Walkthrough
 
-Curriculum walkthrough from v1 to v8.
+Curriculum walkthrough from v1 to v10.
+
+Each step comes with commands to reproduce the results. Change `--device` to `cpu`, `mps`, or `cuda` based on the hardware available to you.
 
 ## Differences
 
@@ -15,6 +17,8 @@ These are intentional refinements, not bugs. v1-v3 use PyTorch default initializ
 ## Reading the Metrics
 
 **Avg loss (Sampled Softmax, v2/v4+):** Each training step, the model sees 1 correct item and N random wrong items (256 for ML-1M, 512 for ML-20M) and has to pick the right one. The loss measures how badly it fails at this. If the model has no idea and guesses uniformly across 257 candidates, the probability of guessing right is 1/257 and the loss is -log(1/257) ≈ 5.55. As the model learns, it assigns higher probability to the correct item and the loss drops. The `~X% correct` in the training output is just that probability: how often the model's top pick is actually right.
+
+v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it mirrors the equation directly. That version can overflow for very large logits, so v8-v10 switch to the stable `logsumexp` form of the same objective. The training objective does not change, only the numerical implementation does.
 
 | Loss | ~P(correct) | What's happening |
 |------|-------------|------------------|
@@ -349,18 +353,18 @@ ReZero at 8 blocks beats plain SASRec at 16 blocks with 3.2M fewer parameters an
 
 **What changed.** Replaced absolute position embeddings with two relative biases added directly to attention scores. Instead of each position having its own learned vector ("what does slot 5 mean?"), the model learns "how far apart are these two items?"
 
-Here's what the distance matrix looks like for a 5-item sequence (each entry is column position minus row position):
+Here's what the distance matrix looks like for a 5-item sequence (each entry is query position minus key position):
 
 ```
 query ↓    item_1  item_2  item_3  item_4  item_5
-item_1  [    0       1       2       3       4   ]
-item_2  [   -1       0       1       2       3   ]
-item_3  [   -2      -1       0       1       2   ]
-item_4  [   -3      -2      -1       0       1   ]
-item_5  [   -4      -3      -2      -1       0   ]
+item_1  [    0      -1      -2      -3      -4   ]
+item_2  [    1       0      -1      -2      -3   ]
+item_3  [    2       1       0      -1      -2   ]
+item_4  [    3       2       1       0      -1   ]
+item_5  [    4       3       2       1       0   ]
 ```
 
-Positive values mean "this item is in the future." Causal masking zeros those out since items can't attend forward. What remains are the negative distances: "this item was 1 step back, that one was 3 steps back."
+Negative values mean "this item is in the future." Causal masking zeros those out since items can't attend forward. What remains are the positive distances: "this item was 1 step back, that one was 3 steps back."
 
 We do the same with timestamps. If item_2 happened Monday and item_5 happened the following Thursday, the temporal distance is 3 days. Raw distances can be huge (months apart), so we compress them into 32 log-spaced buckets. Buckets 0-15 cover small distances with fine resolution (0, 1, 2, ... 15 apart). Buckets 16-31 cover larger distances logarithmically (16, 24, 36, ... 200+). Each bucket gets a learnable bias per attention head.
 
@@ -385,7 +389,7 @@ Temporal bias also didn't add signal on MovieLens. Ratings are sparse (average 1
 
 ### Takeaway
 
-**What is HSTU?** HSTU (Hierarchical Sequential Transduction Unit) is Meta's replacement for the Transformer block in sequential recommendation, introduced in the Scaling New Frontiers paper (Zhai et al., ICML 2024). It powers recommendations across Facebook, Instagram, and Threads. v8 implements the core architecture in `sasrec/model/hstu.py`.
+**What is HSTU?** HSTU (Hierarchical Sequential Transduction Unit) is Meta's replacement for the Transformer block in sequential recommendation, introduced in the Scaling New Frontiers paper (Zhai et al., ICML 2024). It powers recommendations across Facebook, Instagram, and Threads. v8 implements the first local version inside `train_v8.py`; v9+ uses the shared implementation in `sasrec/model/hstu.py`.
 
 Three things change from SASRec's Transformer block:
 
@@ -411,7 +415,7 @@ Three things change from SASRec's Transformer block:
 
 **The bigger finding.** Our v6 (0.3376) beats Meta's HSTU (0.3273) without changing the attention mechanism at all. The gap between "old SASRec" and "HSTU" in Meta's paper was mostly training improvements, not architecture. When you stack those same improvements onto SASRec (which v1-v6 did), the gap disappears.
 
-**What's next.** Our HSTU is missing two pieces from Meta's full implementation that are likely where the real gains live. v9 adds nonlinearity to the projection layers. v10 changes how the model trains, giving it ~100x more supervision signal per sequence. Details in those sections.
+**What's next.** Our HSTU is missing pieces from Meta's full implementation that are likely where the real gains live. v9 adds nonlinearity to the projection layers. v10 aligns scoring and sampled-softmax training details with production HSTU configs.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -470,7 +474,7 @@ L2 normalization also removes a degree of freedom. Without it, the model can use
 
 **The lesson for practitioners.** These training details are not universally beneficial. They're coupled to the full training pipeline, particularly the negative sampling strategy and catalog scale. Adopting Meta's config without adopting their in-batch negative mining won't reproduce their results.
 
-## Appendix: Dense All Action (train_v11.py)
+## Appendix: Dense All Action
 
 ### Run
 

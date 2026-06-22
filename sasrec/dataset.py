@@ -86,10 +86,10 @@ def sample_batch(
     We use NumPy arrays for the batches because they are
     memory-contiguous, which is required for efficient GPU processing.
     PyTorch later handles these NumPy arrays very gracefully.
-    """
-    # Initialize the modern NumPy random generator (faster than np.random.randint)
-    rng = np.random.default_rng()
 
+    NOTE: Randomness is controlled by the caller. Training scripts should call
+    set_seed(...) before sampling and record that seed with the run.
+    """
     # 1. Sample users
     # NOTE: random.sample is 'without replacement', gives unique users
     batch_users = random.sample(range(1, num_users + 1), k=batch_size)
@@ -136,9 +136,10 @@ def sample_batch(
         count = 0
         while count < num_negs:
             # Sample a block of random IDs in C-speed, then filter in python.
-            # NOTE: `num_items + 1` is due to exclusive nature of rng.integers on the high side so all item ids are included
-            # NOTE: we start with 1 in rng.integers since 0 is reserved for the padding token in the item ID lookups
-            samples = rng.integers(1, num_items + 1, size=num_negs - count)
+            # Uses NumPy's global RNG so set_seed(...) in the caller controls sampling.
+            # NOTE: `num_items + 1` is due to exclusive nature of randint on the high side so all item ids are included
+            # NOTE: we start with 1 in randint since 0 is reserved for the padding token in the item ID lookups
+            samples = np.random.randint(1, num_items + 1, size=num_negs - count)
             for s in samples:
                 if s not in seen_items:
                     user_negs[count] = s

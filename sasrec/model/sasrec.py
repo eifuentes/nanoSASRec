@@ -53,11 +53,11 @@ def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int
     max_exact = num_buckets // 2
     # determine max_distance from the tensor of relative distances itself
     # guard for sequences where max_distances is less than max_exact
-    max_distance = max(relative_positions[0, -1].item(), max_exact + 1)
+    max_distance = max(relative_positions.max().item(), max_exact + 1)
     # only care about non-negative distances (causal: i attends to j where j <= i)
     # negative distances mean "future positions" which causal masking blocks anyway.
     # clamp them to 0 so we don't get negative indices or log-of-negative errors.
-    # example: the matrix [[0,1,2],[-1,0,1],[-2,-1,0]] becomes [[0,1,2],[0,0,1],[0,0,0]]
+    # example: the matrix [[0,-1,-2],[1,0,-1],[2,1,0]] becomes [[0,0,0],[1,0,0],[2,1,0]]
     relative_positions = relative_positions.clamp(min=0)
     # small distances: linear bucket (one per distance)
     # create boolean mask.
@@ -101,7 +101,7 @@ def bucket_temporal_distances(relative_timestamps: torch.Tensor, num_buckets: in
     # only care about non-negative timedeltas (causal: i attends to j where j <= i)
     # negative timedeltas mean "future timestamps" which causal masking blocks anyway.
     # clamp them to 0 so we don't get negative indices or log-of-negative errors.
-    # example: the matrix [[0,1,2],[-1,0,1],[-2,-1,0]] becomes [[0,1,2],[0,0,1],[0,0,0]]
+    # example: the matrix [[0,-1,-2],[1,0,-1],[2,1,0]] becomes [[0,0,0],[1,0,0],[2,1,0]]
     relative_timedelta = relative_timestamps.clamp(min=0)
     # small timedeltas: linear bucket (one per timedelta)
     # create boolean mask.
@@ -365,7 +365,7 @@ class SASRec(nn.Module):
         if self.use_relative_bias:
             # calculate relative position and temporal biases to use later
             positions = torch.arange(seq_len, device=x.device)
-            relative_position_distances = positions.unsqueeze(0) - positions.unsqueeze(1)  # (seq_len, seq_len)
+            relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
             relative_position_buckets = bucket_relative_positions(
                 relative_position_distances, num_buckets=self.num_relative_bias_buckets
             )
@@ -382,7 +382,7 @@ class SASRec(nn.Module):
                 # Unlike positional distances (same for all users), temporal distances are
                 # per-user since each user has different interaction timestamps.
                 # Shape is (batch_size, seq, seq) not (seq, seq) — each user gets unique biases.
-                time_deltas = timestamps.unsqueeze(1) - timestamps.unsqueeze(2)  # (batch_size, seq_len, seq_len)
+                time_deltas = timestamps.unsqueeze(2) - timestamps.unsqueeze(1)  # (batch_size, seq_len, seq_len)
                 time_buckets = bucket_temporal_distances(time_deltas, num_buckets=self.num_relative_bias_buckets)
                 temporal_biases = self.temporal_bias_embedding_table(time_buckets)
                 # NOTE: temporal bias is (batch_size, num_heads, seq_len, seq_len)

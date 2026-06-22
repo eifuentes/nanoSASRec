@@ -108,6 +108,31 @@ dependencies = [
 ]
 ```
 
+If you plan to edit the repo, install the dev tools and run Ruff before committing changes:
+
+```bash
+uv sync --group dev
+uv run ruff format .
+uv run ruff check .
+```
+
+## Remote GPU Training
+
+For longer ML-20M runs, `remote.py` can launch any `train_v*.py` script on [Modal](https://modal.com/). Create a Modal account and authenticate locally before using it.
+
+```bash
+uv sync --group cloud
+uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20m"
+```
+
+`remote.py` automatically preprocesses the requested dataset, mounts the local training scripts and `sasrec/` package, adds `--device cuda`, and persists downloaded data in a _Modal Volume_.
+
+If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
+
+You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run.
+
+This project is not sponsored.
+
 ## Roadmap
 
 ### Cleanup Backlog

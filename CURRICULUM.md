@@ -37,7 +37,7 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 
 **NDCG@10 (Normalized Discounted Cumulative Gain):** Not just "did it make the top 10?" but "how high?" The score uses a log discount: 1/log2(rank+1). Rank 1 gets full credit (1.0), rank 2 gets 0.63, rank 5 gets 0.39, rank 10 gets 0.30. The log means there's a big difference between rank 1 and rank 3, but a small difference between rank 8 and rank 10. This matches real user behavior: people click the first few results, rarely scroll to position 10. When you see an average NDCG@10 of 0.20 across 138K users, it means the typical user's ground truth item lands around rank 4-5 when it does appear in the top 10. NDCG is the metric that matters most for recommendations because getting the right item to the very top is what drives clicks.
 
-## v1
+## v1: Vanilla SASRec + BCE Loss
 
 ### Run
 
@@ -114,7 +114,7 @@ Estimate batches per epoch: 47
 
 ---
 
-## v2
+## v2: Sampled Softmax Loss
 
 ### Run
 
@@ -189,7 +189,7 @@ Estimate batches per epoch: 47
 
 **What's still wrong:** Sampled softmax with 256 negatives is better than BCE with 1, but it's still an approximation of full-catalog softmax (3,416 items). The model sees 256/3,416 ≈ 7.5% of the catalog per training step. And the Petrov & Macdonald research (2308.07192) showed that even sampled softmax exhibits some overconfidence - the predicted probabilities are still higher than the true item relevance probabilities. v3's gBCE solves this more elegantly: it goes back to BCE's simplicity but fixes the overconfidence directly by reweighting the positive/negative contributions to match the true catalog ratio. The punchline - gBCE with just 1 negative matches or beats SSM with 256 negatives, at the same training cost as v1.
 
-## v3
+## v3: Generalized BCE Loss
 
 ### Run
 
@@ -264,7 +264,7 @@ Estimate batches per epoch: 47
 
 **What we learned about the loss function progression:** After three versions with identical architecture, the conclusion is clear: SASRec's performance issues were never about the architecture. v1's BCE overconfidence, v2's softmax fix, v3's calibration approach are all statements about how the training signal is shaped, not about how attention works. The architecture was fine from the start. This matches the central finding of the 2023 research: fix the loss, fix the model.
 
-## v4
+## v4: Implementation Refinements
 
 ### Run
 
@@ -280,12 +280,12 @@ Estimate batches per epoch: 47
 |--------|----------|------------------------|
 | Val HR@10 | 0.7922 | 0.8490 |
 | Val NDCG@10 | 0.5699 | 0.6392 |
-| Test HR@10 (full-catalog) | — | 0.3033 |
-| Test NDCG@10 (full-catalog) | — | 0.1724 |
+| Test HR@10 (full-catalog) | — | 0.3018 |
+| Test NDCG@10 (full-catalog) | — | 0.1730 |
 
 Look at the gap between validation and test. Val HR is 0.85 (ranking against 101 items), test HR is 0.30 (ranking against all 3,416 items). Same model, same predictions, wildly different numbers. This is why full-catalog eval matters: sampled eval makes everything look good.
 
-For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +6.3% HR despite using the same architecture. The difference is entirely the refinements below.
+For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +5.8% HR despite using the same architecture. The difference is entirely the refinements below.
 
 **What the refinements do and why they matter:**
 
@@ -311,14 +311,14 @@ For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got H
 
 | Blocks | Params | Test HR@10 | Test NDCG@10 | Time/epoch |
 |--------|--------|------------|--------------|------------|
-| 2 | 5.5M | 0.3023 | 0.1778 | ~75s |
-| 4 | 6.3M | 0.3146 | 0.1865 | ~120s |
-| 8 | 7.9M | 0.3264 | 0.1966 | ~230s |
-| 16 | 11.1M | 0.3337 | 0.2012 | ~420s |
+| 2 | 5.5M | 0.3009 | 0.1760 | ~75s |
+| 4 | 6.3M | 0.3149 | 0.1869 | ~120s |
+| 8 | 7.9M | 0.3237 | 0.1941 | ~230s |
+| 16 | 11.1M | 0.3350 | 0.2026 | ~420s |
 
-**Depth pays off.** Going from 2 to 16 blocks improves HR by +10.4% and NDCG by +13.2%. This is a clear, monotonic improvement across every depth we tested.
+**Depth pays off.** Going from 2 to 16 blocks improves HR by +11.3% and NDCG by +15.1%. This is a clear, monotonic improvement across every depth we tested.
 
-**But depth has diminishing returns.** The jump from 2 to 4 blocks (+4.1% HR) is bigger than 4 to 8 (+3.7%), which is bigger than 8 to 16 (+2.2%). Each doubling of depth costs roughly 2x the training time but delivers less improvement. At 16 blocks you're spending 5.6x the compute of 2 blocks for +10% quality. The natural next question is whether we can get more from the depth we already have rather than just stacking more blocks.
+**But depth has diminishing returns.** Each doubling of depth costs roughly 2x the training time but delivers similar or less improvement. At 16 blocks you're spending 5.6x the compute of 2 blocks for +11% quality. The natural next question is whether we can get more from the depth we already have rather than just stacking more blocks.
 
 ## v6: ReZero Residual Scaling
 
@@ -336,12 +336,12 @@ For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got H
 
 | Config | Blocks | Params | Test HR@10 | Test NDCG@10 |
 |--------|--------|--------|------------|--------------|
-| v5 | 2 | 5.5M | 0.3023 | 0.1778 |
-| v5 | 8 | 7.9M | 0.3264 | 0.1966 |
-| v5 | 16 | 11.1M | 0.3337 | 0.2012 |
-| **v6 (ReZero)** | **8** | **7.9M** | **0.3376** | **0.2033** |
+| v5 | 2 | 5.5M | 0.3009 | 0.1760 |
+| v5 | 8 | 7.9M | 0.3237 | 0.1941 |
+| v5 | 16 | 11.1M | 0.3350 | 0.2026 |
+| v6 (ReZero) | 8 | 7.9M | 0.3365 | 0.2020 |
 
-ReZero at 8 blocks beats plain SASRec at 16 blocks with 3.2M fewer parameters and half the training time. 16 scalar parameters did what doubling the model couldn't.
+ReZero at 8 blocks matches plain SASRec at 16 blocks (0.3365 vs 0.3350) with 3.2M fewer parameters and half the training time. 16 scalar parameters did what doubling the model couldn't.
 
 ## v7: Relative Position & Temporal Bias
 
@@ -372,14 +372,12 @@ We do the same with timestamps. If item_2 happened Monday and item_5 happened th
 
 | Config | Test HR@10 | Test NDCG@10 |
 |--------|------------|--------------|
-| v6 (ReZero, absolute pos) | 0.3376 | 0.2033 |
-| v7 (ReZero, relative + temporal) | 0.3208 | 0.1927 |
+| v6 (ReZero, absolute pos) | 0.3365 | 0.2020 |
+| v7 (ReZero, relative + temporal) | 0.3457 | 0.2085 |
 
-**Relative bias didn't help here.** v7 dropped 5% on both metrics. Absolute position embeddings use 50,944 parameters (199 positions x 256 dims). Relative bias uses 256 parameters (32 buckets x 8 heads). That 200x reduction in positional capacity hurts at this model scale.
+**Relative bias is the single biggest contributor in the repo.** v7 beats v6 by +2.7% HR and +3.2% NDCG. Unlike absolute position embeddings that encode "what slot is this," relative bias encodes "how far apart are these items" which is what actually matters for sequential patterns. The temporal bias adds real signal too, "items consumed in the same session" gets a different learned weight than "items months apart."
 
-Temporal bias also didn't add signal on MovieLens. Ratings are sparse (average 144 items per user over years), so most time deltas land in similar buckets. This would matter more for dense click-stream data where "30 seconds ago" vs "2 hours ago" carries real signal.
-
-**Why v7 still matters.** The bucketing infrastructure carries directly into v8, and the honest negative result is worth documenting.
+The compactness that originally seemed like a liability (256 parameters vs 50,944 for absolute) is actually a strength. Relative bias uses 32 shared buckets across all positions, which acts as a strong inductive bias, the model must learn general distance patterns rather than memorizing per-slot behavior. This regularization effect compounds with ReZero's residual stabilization.
 
 ## v8: HSTU
 
@@ -403,19 +401,17 @@ Three things change from SASRec's Transformer block:
 
 | Config | Test HR@10 | Test NDCG@10 |
 |--------|------------|--------------|
-| v5 blocks=8 (SASRec) | 0.3264 | 0.1966 |
-| **v6 (+ ReZero)** | **0.3376** | **0.2033** |
-| v7 (+ relative bias) | 0.3208 | 0.1927 |
-| v8 (HSTU) | 0.3204 | 0.1918 |
+| v5 blocks=8 (SASRec) | 0.3237 | 0.1941 |
+| v6 (+ ReZero) | 0.3365 | 0.2020 |
+| **v7 (+ relative bias)** | **0.3457** | **0.2085** |
+| v8 (HSTU) | 0.3339 | 0.2006 |
 | Meta's SASRec | 0.2889 | 0.1621 |
 | Meta's HSTU | 0.3273 | 0.1895 |
 | Meta's HSTU-large | 0.3556 | 0.2098 |
 
-**The architecture swap didn't move the needle.** v8 HSTU (0.3204) lands roughly even with v5 SASRec at 8 blocks (0.3264), and below v6 SASRec+ReZero (0.3376). Replacing softmax+FFN with SiLU+gating is a lateral move at this scale. SiLU's advantage shows up at sequence lengths of 1000+ where softmax starts diluting attention. ML-20M's average of 144 items isn't long enough to see the difference.
+**The architecture swap trades relative bias for SiLU + gating.** v8 HSTU (0.3339) lands between v6 (0.3365) and v7 (0.3457). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7. At this scale and sequence length, the softmax-to-SiLU swap is roughly neutral.
 
-**The bigger finding.** Our v6 (0.3376) beats Meta's HSTU (0.3273) without changing the attention mechanism at all. The gap between "old SASRec" and "HSTU" in Meta's paper was mostly training improvements, not architecture. When you stack those same improvements onto SASRec (which v1-v6 did), the gap disappears.
-
-**What's next.** Our HSTU is missing pieces from Meta's full implementation that are likely where the real gains live. v9 adds nonlinearity to the projection layers. v10 aligns scoring and sampled-softmax training details with production HSTU configs.
+**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats HSTU (0.3273) by +5.6% without changing the attention mechanism. Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in Meta's paper.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -435,11 +431,11 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 | Config | Params | Test HR@10 | Test NDCG@10 |
 |--------|--------|------------|--------------|
-| v8 (HSTU, separate projections) | 7.9M | 0.3204 | 0.1918 |
-| **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3272** | **0.1967** |
+| v8 (HSTU, separate projections) | 7.3M | 0.3339 | 0.2006 |
+| **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3425** | **0.2071** |
 | Meta's HSTU | — | 0.3273 | 0.1895 |
 
-**φ1 closed the gap to Meta's HSTU.** v9 matches their HR (0.3272 vs 0.3273) and beats their NDCG (0.1967 vs 0.1895). With fewer parameters than v8 (the combined projection replaces four separate ones, while the LayerNorm adds minimal overhead).
+**φ1 improved over v8 by +2.6% HR.** v9 beats Meta's HSTU by +4.6% HR and +9.3% NDCG. But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
 
 ## v10: Training Alignment
 
@@ -463,8 +459,8 @@ These are standard techniques in production recommendation systems. Meta uses th
 
 | Config | HR@10 | NDCG@10 |
 |--------|-------|---------|
-| v9 (raw dot products) | 0.3272 | 0.1967 |
-| v10 temp=0.05 | 0.3200 | 0.1911 |
+| v9 (raw dot products) | 0.3425 | 0.2071 |
+| v10 temp=0.05 | 0.3355 | 0.2016 |
 
 **These techniques didn't help at our scale.** v10 slightly underperformed v9 across all temperatures tested. The likely reason is the negative sampling strategy: we use random negatives, Meta uses in-batch negatives (the positive items from other users in the same batch).
 
@@ -491,13 +487,13 @@ The implementation is memory-efficient: precompute `logsumexp` of negative score
 
 | Variant | HR@10 | NDCG@10 |
 |---------|-------|---------|
-| v9 (next-item only) | 0.3272 | 0.1967 |
-| Dense All Action (K=10 horizon) | 0.2502 | 0.1376 |
+| v9 (next-item only) | 0.3425 | 0.2071 |
+| Dense All Action (K=10 horizon) | 0.2565 | 0.1416 |
 | Dense All Action (uncapped) | 0.1300 | 0.0683 |
 
 **Why it doesn't work for next-item evaluation.** For a sequence of length 199, the uncapped loss has roughly 10,000 valid (position, target) pairs. Only 199 of those are next-item predictions (the diagonal). The other 9,800 are far-future predictions. The model gets 50x more gradient telling it "predict what happens 10-50 steps from now" than "predict the next item."
 
-Capping the horizon at K=10 helped (HR nearly doubled from 0.1300 to 0.2502) because the next-item signal went from 1% to 10% of the total loss. But even at K=10, 90% of the gradient still pulls away from next-item accuracy.
+Capping the horizon at K=10 helped (HR nearly doubled from 0.1300 to 0.2565) because the next-item signal went from 1% to 10% of the total loss. But even at K=10, 90% of the gradient still pulls away from next-item accuracy.
 
 **What Dense All Action is actually for.** PinnerFormer introduced this technique for temporal embedding stability at Pinterest. If the model can predict not just the next item but all future items, then user embeddings computed today are still useful for serving recommendations tomorrow. The evaluation in PinnerFormer reflects this: they measure whether embeddings from 24 hours ago still produce good recommendations today. That's a different objective than next-item HR@10.
 

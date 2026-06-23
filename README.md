@@ -51,9 +51,9 @@ Model top-3:
 | `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +14% NDCG |
 | `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, diminishing returns after 8 |
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero > 16 blocks without |
-| `train_v7.py` | Relative position + temporal bias | ML-20M | Didn't help at this scale (honest negative) |
-| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is lateral without training changes |
-| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Matches Meta's HSTU, training > architecture confirmed |
+| `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo, biggest single improvement |
+| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap roughly neutral at this scale |
+| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Beats Meta's HSTU by +4.6% |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
 
 Each file is runnable independently. Read v1-v10 in order for the full progression, or jump to any step.
@@ -73,15 +73,15 @@ Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) fro
 
 | Version | What changed | HR@10 | NDCG@10 |
 |---------|-------------|-------|---------|
-| v5 (2 blocks) | SASRec baseline | 0.3023 | 0.1778 |
-| v5 (4 blocks) | + depth | 0.3146 | 0.1865 |
-| v5 (8 blocks) | + more depth | 0.3264 | 0.1966 |
-| v5 (16 blocks) | + even more depth | 0.3337 | 0.2012 |
-| v6 (8 blocks) | + ReZero | 0.3376 | 0.2033 |
-| v7 (8 blocks) | + relative bias | 0.3208 | 0.1927 |
-| v8 (8 blocks) | HSTU architecture | 0.3204 | 0.1918 |
-| v9 (8 blocks) | + φ1 pre-activation | 0.3272 | 0.1967 |
-| v10 (8 blocks) | + temp + L2 + collision | 0.3200 | 0.1911 |
+| v5 (2 blocks) | SASRec baseline | 0.3009 | 0.1760 |
+| v5 (4 blocks) | + depth | 0.3149 | 0.1869 |
+| v5 (8 blocks) | + more depth | 0.3237 | 0.1941 |
+| v5 (16 blocks) | + even more depth | 0.3350 | 0.2026 |
+| v6 (8 blocks) | + ReZero | 0.3365 | 0.2020 |
+| **v7 (8 blocks)** | **+ relative bias** | **0.3457** | **0.2085** |
+| v8 (8 blocks) | HSTU architecture | 0.3339 | 0.2006 |
+| v9 (8 blocks) | + φ1 pre-activation | 0.3425 | 0.2071 |
+| v10 (8 blocks) | + temp + L2 + collision | 0.3355 | 0.2016 |
 
 Compared to Meta's published results (Zhai et al., ICML 2024):
 

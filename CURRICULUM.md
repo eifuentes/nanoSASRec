@@ -489,11 +489,8 @@ The implementation is memory-efficient: precompute `logsumexp` of negative score
 |---------|-------|---------|
 | v9 (next-item only) | 0.3425 | 0.2071 |
 | Dense All Action (K=10 horizon) | 0.2565 | 0.1416 |
-| Dense All Action (uncapped) | 0.1300 | 0.0683 |
 
-**Why it doesn't work for next-item evaluation.** For a sequence of length 199, the uncapped loss has roughly 10,000 valid (position, target) pairs. Only 199 of those are next-item predictions (the diagonal). The other 9,800 are far-future predictions. The model gets 50x more gradient telling it "predict what happens 10-50 steps from now" than "predict the next item."
-
-Capping the horizon at K=10 helped (HR nearly doubled from 0.1300 to 0.2565) because the next-item signal went from 1% to 10% of the total loss. But even at K=10, 90% of the gradient still pulls away from next-item accuracy.
+**Why it doesn't work for next-item evaluation.** For a sequence of length 199 with horizon K=10, each position predicts its next 10 items. The next-item prediction (the diagonal) is 1 out of 10 targets, so only 10% of the gradient signal targets the metric we actually evaluate on. The other 90% optimizes for predicting items 2-10 steps ahead.
 
 **What Dense All Action is actually for.** PinnerFormer introduced this technique for temporal embedding stability at Pinterest. If the model can predict not just the next item but all future items, then user embeddings computed today are still useful for serving recommendations tomorrow. The evaluation in PinnerFormer reflects this: they measure whether embeddings from 24 hours ago still produce good recommendations today. That's a different objective than next-item HR@10.
 

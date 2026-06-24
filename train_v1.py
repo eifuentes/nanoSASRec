@@ -90,7 +90,7 @@ def sample_batch(
             user_seq = user_seq[start_idx:]
         else:
             # 0 is reserved value for padding values
-            # TODO: given np array is init with 0s this is redundant, could insert at correct index
+            # The arrays are initialized with zeros, later versions insert directly by index.
             num_pads = max_len - user_seq_len
             pad_seq = [0] * num_pads
             user_seq = pad_seq + user_seq
@@ -99,7 +99,7 @@ def sample_batch(
         # ideally done by shifting the input sequence left and lining up
         input_user_seq, target_user_seq = user_seq[:-1], user_seq[1:]  # each seq is max_len - 1
         # select random negatives from unseen items throughout entire sequence history
-        # TODO: can be optimized to be O(1) using `random.randint(1, num_items)` and checking if seen
+        # Simple and readable for v1, later samplers use faster rejection sampling.
         item_neg_pool = sorted(set(range(1, num_items + 1)) - set(user_seq))
         random_neg_seq = random.sample(item_neg_pool, k=len(target_user_seq))
         # move list of ints into numpy arrays
@@ -139,7 +139,7 @@ class SelfAttention(nn.Module):
         head_dim = embedding_dim // self.num_heads
 
         # project query, key, value and calculate attention scores
-        # each linear layer contains all weights for all heads for efficency and later breaks them out via reshaping
+        # each linear layer contains all weights for all heads for efficiency and later breaks them out via reshaping
 
         # query linear layer transforms each position into "this is what I am looking for?"
         query = self.query_proj(x)  # (batch_size, seq_len, embedding_dim)
@@ -170,7 +170,7 @@ class SelfAttention(nn.Module):
         # create and apply boolean mask to protect causality
         # aka each position not having scores associated with positions to the right of it
         # NOTE: do not need to add other 2 dimensions to ones creation due to broadcasting in masked_fill
-        # TODO: Creating causal mask on every forward pass, move to registered buffer in __init__ instead
+        # v4 moves this causal mask to a registered buffer.
         mask = torch.triu(torch.ones((seq_len, seq_len), device=x.device), diagonal=1).bool()
         # negative infinity on the tensor entries marked as true means softmax later will turn these into virtually 0
         attn_scores = attn_scores.masked_fill(mask, float("-inf"))

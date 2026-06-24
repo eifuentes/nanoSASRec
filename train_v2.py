@@ -177,7 +177,7 @@ class SelfAttention(nn.Module):
         head_dim = embedding_dim // self.num_heads
 
         # project query, key, value and calculate attention scores
-        # each linear layer contains all weights for all heads for efficency and later breaks them out via reshaping
+        # each linear layer contains all weights for all heads for efficiency and later breaks them out via reshaping
 
         # query linear layer transforms each position into "this is what I am looking for?"
         query = self.query_proj(x)  # (batch_size, seq_len, embedding_dim)
@@ -208,7 +208,7 @@ class SelfAttention(nn.Module):
         # create and apply boolean mask to protect causality
         # aka each position not having scores associated with positions to the right of it
         # NOTE: do not need to add other 2 dimensions to ones creation due to broadcasting in masked_fill
-        # TODO: Creating causal mask on every forward pass, move to registered buffer in __init__ instead
+        # v4 moves this causal mask to a registered buffer.
         mask = torch.triu(torch.ones((seq_len, seq_len), device=x.device), diagonal=1).bool()
         # negative infinity on the tensor entries marked as true means softmax later will turn these into virtually 0
         attn_scores = attn_scores.masked_fill(mask, float("-inf"))

@@ -1,10 +1,10 @@
 .PHONY: clean-data clean-runs clean-cache clean-all fresh
 
-# just nuke downloaded datasets (keep trained models)
+# remove downloaded datasets (keep trained models)
 clean-data:
 	rm -rf data/
 
-# nuke training artifacts (keep downloaded datasets)
+# remove training artifacts (keep downloaded datasets)
 clean-runs:
 	rm -rf checkpoints/ runs/ *.log
 
@@ -13,7 +13,7 @@ clean-cache:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 
-# nuke everything - data, runs, caches
+# remove data, runs, and caches
 clean-all:
 	rm -rf data/ checkpoints/ runs/ *.log __pycache__/ **/__pycache__/
 

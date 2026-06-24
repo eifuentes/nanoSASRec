@@ -79,7 +79,7 @@ class SelfAttention(nn.Module):
         head_dim = embedding_dim // self.num_heads
 
         # project query, key, value, and gate to calculate attention scores
-        # NOTE: each linear layer contains all weights for all heads for efficency
+        # NOTE: each linear layer contains all weights for all heads for efficiency
         #       and later breaks them out via reshaping
 
         # query linear layer transforms each position into "this is what I am looking for?"
@@ -138,7 +138,7 @@ class SelfAttention(nn.Module):
             attn_agg.transpose(1, 2).contiguous().view(batch_size, seq_len, embedding_dim)
         )  # (batch_size, seq_len, embedding_dim)
 
-        # Normalize attention aggregation due to unscaled SiLU operation earlier to stablize training
+        # Normalize attention aggregation due to unscaled SiLU operation earlier to stabilize training
         attn_normed = self.attn_norm(attn_agg)  # (batch_size, seq_len, embedding_dim)
 
         # apply gating factor on attention based on original input
@@ -175,7 +175,7 @@ class HSTULayer(nn.Module):
         y = self.dropout_attn(y)
         # residual connection: add original input back so gradients
         # can flow without having to go through attention
-        # scale the attention path so as to now overwhelm initial input
+        # scale the attention path so as not to overwhelm initial input
         y = x + (self.residual_scalar_attn * y)
         return y
 

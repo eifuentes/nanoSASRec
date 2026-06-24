@@ -41,7 +41,7 @@ class SelfAttention(nn.Module):
         self.attn_norm = nn.LayerNorm(normalized_shape=embedding_dim)
         self.attn_dropout = nn.Dropout(p=dropout_rate)
 
-        # setup the output final projection on it own
+        # setup the output final projection on its own
         self.out_proj = nn.Linear(in_features=embedding_dim, out_features=embedding_dim, bias=False)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
@@ -133,7 +133,7 @@ class SelfAttention(nn.Module):
             attn_agg.transpose(1, 2).contiguous().view(batch_size, seq_len, embedding_dim)
         )  # (batch_size, seq_len, embedding_dim)
 
-        # Normalize attention aggregation due to unscaled SiLU operation earlier to stablize training
+        # Normalize attention aggregation due to unscaled SiLU operation earlier to stabilize training
         attn_normed = self.attn_norm(attn_agg)  # (batch_size, seq_len, embedding_dim)
 
         # U(X) pointwise gating: multiply attended context with gate signal
@@ -169,7 +169,7 @@ class HSTULayer(nn.Module):
         y = self.dropout_attn(y)
         # residual connection: add original input back so gradients
         # can flow without having to go through attention
-        # scale the attention path so as to now overwhelm initial input
+        # scale the attention path so as not to overwhelm initial input
         y = x + (self.residual_scalar_attn * y)
         return y
 

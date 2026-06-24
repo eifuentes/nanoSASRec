@@ -52,7 +52,7 @@ def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int
     # Distance 0 → bucket 0, distance 1 → bucket 1, ..., distance 15 → bucket 15
     max_exact = num_buckets // 2
     # determine max_distance from the tensor of relative distances itself
-    # guard for sequences where max_distances is less than max_exact
+    # guard for sequences where max_distance is less than max_exact
     max_distance = max(relative_positions.max().item(), max_exact + 1)
     # only care about non-negative distances (causal: i attends to j where j <= i)
     # negative distances mean "future positions" which causal masking blocks anyway.
@@ -70,7 +70,7 @@ def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int
         max_exact
         + (  # offset past the linear buckets
             # normalize distances relative to where the log region starts
-            # then conducts a log transform
+            # then applies a log transform
             torch.log(safe_positions.float() / max_exact)
             # normalize so that max_distance maps to 1.0
             / math.log(max_distance / max_exact)
@@ -89,13 +89,13 @@ def bucket_temporal_distances(relative_timestamps: torch.Tensor, num_buckets: in
     """Convert relative timestamp timedeltas to bucket indices.
 
     First half of buckets are linear (one per timedelta for fine-grained recency).
-    Second half are logarithmically spaced (coarse for timedelta items).
+    Second half are logarithmically spaced (coarse for larger timedeltas).
     """
     # with num_buckets=32, this is 16.
     # Distances 0-15 each get their own dedicated bucket.
     # Distance 0 → bucket 0, timedelta 1 → bucket 1, ..., timedelta 15 → bucket 15
     max_exact = num_buckets // 2
-    # determine max_timedelta from as a lookback window in seconds
+    # determine max_timedelta as a lookback window in seconds
     # picked 30 days which covers most user behavior windows
     max_timedelta = 86400 * 30  # 30 days in seconds
     # only care about non-negative timedeltas (causal: i attends to j where j <= i)
@@ -114,7 +114,7 @@ def bucket_temporal_distances(relative_timestamps: torch.Tensor, num_buckets: in
         max_exact
         + (  # offset past the linear buckets
             # normalize timedeltas relative to where the log region starts
-            # then conducts a log transform
+            # then applies a log transform
             torch.log(safe_positions.float() / max_exact)
             # normalize so that max_timedelta maps to 1.0
             / math.log(max_timedelta / max_exact)
@@ -163,7 +163,7 @@ class SelfAttention(nn.Module):
         head_dim = embedding_dim // self.num_heads
 
         # project query, key, value and calculate attention scores
-        # each linear layer contains all weights for all heads for efficency and later breaks them out via reshaping
+        # each linear layer contains all weights for all heads for efficiency and later breaks them out via reshaping
 
         # query linear layer transforms each position into "this is what I am looking for?"
         query = self.query_proj(x)  # (batch_size, seq_len, embedding_dim)

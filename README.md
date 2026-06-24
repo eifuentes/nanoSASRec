@@ -2,9 +2,9 @@
 
 The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
-The official curriculum is 10 training scripts and 3 shared modules.
+The official curriculum is 10 training scripts backed by a small shared `sasrec/` package.
 
-Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every file is self-contained, every design decision cites a paper, and every step has a concrete reproduction target.
+Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every training version is runnable directly, every design decision cites a paper, and every version has a concrete reproduction target.
 
 ## Why this exists
 
@@ -24,7 +24,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce Meta's HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the Zhai et al. (2024) HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
 
 ## What to expect
 
@@ -43,7 +43,7 @@ Model top-3:
 
 ## Versions
 
-| Step | What changes | Dataset | Key finding |
+| Version | What changes | Dataset | Key finding |
 |------|-------------|---------|-------------|
 | `train_v1.py` | Vanilla SASRec + BCE loss | ML-1M | BCE overconfidence problem |
 | `train_v2.py` | Sampled softmax loss | ML-1M | Competition between candidates fixes ranking |
@@ -52,11 +52,11 @@ Model top-3:
 | `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, diminishing returns after 8 |
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero > 16 blocks without |
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo, biggest single improvement |
-| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap roughly neutral at this scale |
-| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Beats Meta's HSTU by +4.6% |
+| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
+| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Beats the Zhai et al. (2024) HSTU result by +4.6% |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
 
-Each file is runnable independently. Read v1-v10 in order for the full progression, or jump to any step.
+Each version is runnable independently. Read v1-v10 in order for the full progression, or jump to any version.
 
 `train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
@@ -64,8 +64,8 @@ Each file is runnable independently. Read v1-v10 in order for the full progressi
 
 | Dataset | Role | Users | Items | Avg len | When used |
 |---------|------|-------|-------|---------|-----------|
-| ML-1M | Curriculum baseline | 6,040 | 3,416 | 163.5 | v1-v4 |
-| ML-20M | Benchmark target | ~138K | ~18K | ~144 | v5-v10 |
+| ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
+| ML-20M | Benchmark target | 138,493 | 18,345 | 144.3 | v5-v10 |
 
 ## Benchmarks
 
@@ -83,13 +83,13 @@ Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) fro
 | v9 (8 blocks) | + φ1 pre-activation | 0.3425 | 0.2071 |
 | v10 (8 blocks) | + temp + L2 + collision | 0.3355 | 0.2016 |
 
-Compared to Meta's published results (Zhai et al., ICML 2024):
+Compared to Zhai et al. (2024) published results:
 
 | Method | HR@10 | NDCG@10 |
 |--------|-------|---------|
-| Meta's SASRec | 0.2889 | 0.1621 |
-| Meta's HSTU | 0.3273 | 0.1895 |
-| Meta's HSTU-large | 0.3556 | 0.2098 |
+| SASRec | 0.2889 | 0.1621 |
+| HSTU | 0.3273 | 0.1895 |
+| HSTU-large | 0.3556 | 0.2098 |
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

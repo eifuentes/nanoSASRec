@@ -27,7 +27,7 @@ underperformance is caused by its loss function, not its architecture.
 - **Petrov & Macdonald, RecSys 2023** (2308.07192): **gSASRec.** Defines overconfidence formally: BCE + negative sampling causes predicted probabilities to approach 1.0. Proposes gBCE loss with calibration parameter β to fix it. **Best Full Paper Award, RecSys 2023.**
 - **Petrov & Macdonald, ACM TORS 2025** (doi:10.1145/3699521): Expanded journal version of gSASRec. Full proofs, calibration error drops from 0.966 to 0.01. Recommends t ∈ [0.75, 0.9] with 128-256 negatives.
 - **Jean et al., ACL-IJCNLP 2015** (1412.2007): Original Sampled Softmax for NLP (large vocabulary neural machine translation). The technique gSASRec and the "Dross" paper adapt for recommendation.
-- **Zhai et al., KDD 2023** (2306.04039): "Revisiting Neural Retrieval on Accelerators." Applies sampled softmax to large-scale retrieval. Same first author as HSTU. Meta's SASRec implementation uses this loss.
+- **Zhai et al., KDD 2023** (2306.04039): "Revisiting Neural Retrieval on Accelerators." Applies sampled softmax to large-scale retrieval. Same first author as HSTU. The Zhai et al. (2024) SASRec benchmark uses this loss.
 
 ## Implementation details that move metrics 2-5%
 

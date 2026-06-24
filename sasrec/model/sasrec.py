@@ -3,7 +3,7 @@ model.py - SASRec model architecture for nanoSASRec v4+
 
 Shared model components used by train_v4.py and later versions.
 Architecture is identical to v1-v3 with these refinements:
-    - Weight init: truncated normal with std=1/sqrt(d) (Meta's SASRec)
+    - Weight init: truncated normal with std=1/sqrt(d) (Zhai et al. (2024))
     - Reversed positional embeddings (Huang 2025, arxiv: 2504.09596)
     - Causal mask as registered buffer (created once, not per forward pass)
     - Configurable feed-forward network hidden dim and activation function

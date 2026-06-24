@@ -421,8 +421,8 @@ DATASETS = {
         "loader": load_ml1m_raw,
         "kcore": True,
         "titles_writer": write_item_titles_ml1m,
-        # Expected stats after preprocessing (SASRec paper, Table II):
-        #   Users: 6,040  Items: 3,416  Avg actions/user: 163.5
+        # Expected stats after this repo's preprocessing:
+        #   Users: 6,040  Items: 3,416  Avg actions/user: 165.5
     },
     "beauty": {
         "loader": load_beauty_raw,
@@ -435,8 +435,8 @@ DATASETS = {
         "loader": load_ml20m_raw,
         "kcore": True,
         "titles_writer": write_item_titles_ml20m,
-        # Expected stats (Meta GR repo):
-        #   Users: ~138K  Items: ~27K  Avg actions/user: ~144
+        # Expected stats after this repo's preprocessing:
+        #   Users: 138,493  Items: 18,345  Avg actions/user: 144.3
     },
 }
 

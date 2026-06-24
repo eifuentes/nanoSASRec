@@ -5,8 +5,8 @@ Changes the training signal: instead of each position predicting only the
 next item, every position predicts ALL future items in the sequence. This
 gives denser supervision per sequence without changing the model.
 
-Inspired by PinnerFormer (Pancha, Zhai et al., KDD 2022) and used in
-Meta's HSTU (Zhai et al., ICML 2024). Same leading author.
+Inspired by PinnerFormer (Pancha, Zhai et al., KDD 2022) and discussed
+in the HSTU paper (Zhai et al., ICML 2024). Same leading author.
 
 The model architecture and evaluation are unchanged. Dense All Action
 affects training only: the model learns richer representations by

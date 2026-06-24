@@ -9,7 +9,7 @@ Each step comes with commands to reproduce the results. Change `--device` to `cp
 Here are known differences from the original SASRec implementation.
 
 - **Pre-LN normalization** (norm before attention/FFN). The original SASRec uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models (Xiong et al. ICML 2020) and is what all modern implementations use, including HSTU and PinnerFormer.
-- **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Meta's SASRec) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
+- **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Zhai et al. (2024)) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
 - **Reversed positional embeddings** (Huang 2025, arxiv: 2504.09596). The original uses forward indexing; v4+ counts backward from the prediction position so the model learns "how far back" rather than "what absolute slot."
 
 These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
@@ -285,7 +285,7 @@ Estimate batches per epoch: 47
 
 Look at the gap between validation and test. Val HR is 0.85 (ranking against 101 items), test HR is 0.30 (ranking against all 3,416 items). Same model, same predictions, wildly different numbers. This is why full-catalog eval matters: sampled eval makes everything look good.
 
-For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +5.8% HR despite using the same architecture. The difference is entirely the refinements below.
+For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +5.8% HR despite using the same architecture. The difference is entirely the refinements below.
 
 **What the refinements do and why they matter:**
 
@@ -305,7 +305,7 @@ For reference, Meta benchmarked SASRec on ML-1M with full-catalog eval and got H
 
 ### Takeaway
 
-**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 18K items), and from dim=50 to dim=256 with 8 attention heads. This matches the configuration Meta used to benchmark SASRec and HSTU in the Scaling New Frontiers paper (Zhai et al., ICML 2024), so our numbers are directly comparable to theirs.
+**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 18K items), and from dim=50 to dim=256 with 8 attention heads. This matches the ML-20M benchmark configuration from Guo et al. (2024) and Zhai et al. (2024), so our numbers are directly comparable to theirs.
 
 **Results on ML-20M (50 epochs, dim=256, heads=8, batch=128, seed=42, full-catalog eval):**
 
@@ -387,7 +387,7 @@ The compactness that originally seemed like a liability (256 parameters vs 50,94
 
 ### Takeaway
 
-**What is HSTU?** HSTU (Hierarchical Sequential Transduction Unit) is Meta's replacement for the Transformer block in sequential recommendation, introduced in the Scaling New Frontiers paper (Zhai et al., ICML 2024). It powers recommendations across Facebook, Instagram, and Threads. v8 implements the first local version inside `train_v8.py`; v9+ uses the shared implementation in `sasrec/model/hstu.py`.
+**What is HSTU?** HSTU (Hierarchical Sequential Transduction Unit) is the sequential recommendation block introduced by Zhai et al. (2024). It powers recommendations across Facebook, Instagram, and Threads. v8 implements the first local version inside `train_v8.py`; v9+ uses the shared implementation in `sasrec/model/hstu.py`.
 
 Three things change from SASRec's Transformer block:
 
@@ -405,13 +405,13 @@ Three things change from SASRec's Transformer block:
 | v6 (+ ReZero) | 0.3365 | 0.2020 |
 | **v7 (+ relative bias)** | **0.3457** | **0.2085** |
 | v8 (HSTU) | 0.3339 | 0.2006 |
-| Meta's SASRec | 0.2889 | 0.1621 |
-| Meta's HSTU | 0.3273 | 0.1895 |
-| Meta's HSTU-large | 0.3556 | 0.2098 |
+| SASRec (Zhai et al., 2024) | 0.2889 | 0.1621 |
+| HSTU (Zhai et al., 2024) | 0.3273 | 0.1895 |
+| HSTU-large (Zhai et al., 2024) | 0.3556 | 0.2098 |
 
-**The architecture swap trades relative bias for SiLU + gating.** v8 HSTU (0.3339) lands between v6 (0.3365) and v7 (0.3457). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7. At this scale and sequence length, the softmax-to-SiLU swap is roughly neutral.
+**The architecture swap is not a clear win at this scale.** v8 HSTU (0.3339) beats the v5 8-block SASRec baseline (0.3237), but lands below v6 ReZero (0.3365) and v7 relative bias (0.3457). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
 
-**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats HSTU (0.3273) by +5.6% without changing the attention mechanism. Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in Meta's paper.
+**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats the Zhai et al. (2024) HSTU result (0.3273) by +5.6% without changing the attention mechanism. Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in the published benchmark.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -433,9 +433,9 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 |--------|--------|------------|--------------|
 | v8 (HSTU, separate projections) | 7.3M | 0.3339 | 0.2006 |
 | **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3425** | **0.2071** |
-| Meta's HSTU | — | 0.3273 | 0.1895 |
+| HSTU (Zhai et al., 2024) | — | 0.3273 | 0.1895 |
 
-**φ1 improved over v8 by +2.6% HR.** v9 beats Meta's HSTU by +4.6% HR and +9.3% NDCG. But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
+**φ1 improved over v8 by +2.6% HR.** v9 beats the Zhai et al. (2024) HSTU result by +4.6% HR and +9.3% NDCG. But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
 
 ## v10: Training Alignment
 
@@ -445,7 +445,7 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 ### Takeaway
 
-**What changed.** Three training details from Meta's production HSTU configs, applied on top of v9's architecture:
+**What changed.** Three training details from the Zhai et al. (2024) HSTU setup, applied on top of v9's architecture:
 
 **L2 normalization.** Normalize both the model's output embeddings and the item embeddings to unit length before scoring. This turns dot products into cosine similarity, bounded between [-1, 1]. Without it, the model can give popular items larger embedding norms so they score high regardless of relevance. With it, all items compete on direction (angular similarity) alone.
 
@@ -453,7 +453,7 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 **Collision masking.** If a randomly sampled negative happens to be the same item as the positive target, mask it to negative infinity before the loss. Without this, the model occasionally gets penalized for scoring a correct item highly. With 512 negatives out of 18,345 items, collisions happen about 2.8% of the time per position.
 
-These are standard techniques in production recommendation systems. Meta uses them across all their published configs.
+These are standard techniques in production recommendation systems and appear in the Zhai et al. (2024) HSTU training setup.
 
 **Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
 
@@ -462,13 +462,13 @@ These are standard techniques in production recommendation systems. Meta uses th
 | v9 (raw dot products) | 0.3425 | 0.2071 |
 | v10 temp=0.05 | 0.3355 | 0.2016 |
 
-**These techniques didn't help at our scale.** v10 slightly underperformed v9 across all temperatures tested. The likely reason is the negative sampling strategy: we use random negatives, Meta uses in-batch negatives (the positive items from other users in the same batch).
+**These techniques didn't help at our scale.** v10 slightly underperformed v9 across all temperatures tested. The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
 
 Random negatives are "easy" because they're mostly items from completely different categories. The model quickly learns to reject them and doesn't need temperature sharpening to separate them. In-batch negatives are "hard" because they're items other users actually interacted with, forcing finer distinctions. That's where temperature sharpening and cosine similarity pay off.
 
-L2 normalization also removes a degree of freedom. Without it, the model can use embedding magnitude as a signal (popular items naturally develop larger norms). At Meta's production scale with billions of interactions, this prevents unhealthy popularity bias. At ML-20M scale, the popularity signal is useful and removing it hurts.
+L2 normalization also removes a degree of freedom. Without it, the model can use embedding magnitude as a signal (popular items naturally develop larger norms). At production scale with billions of interactions, this prevents unhealthy popularity bias. At ML-20M scale, the popularity signal is useful and removing it hurts.
 
-**The lesson for practitioners.** These training details are not universally beneficial. They're coupled to the full training pipeline, particularly the negative sampling strategy and catalog scale. Adopting Meta's config without adopting their in-batch negative mining won't reproduce their results.
+**The lesson for practitioners.** These training details are not universally beneficial. They're coupled to the full training pipeline, particularly the negative sampling strategy and catalog scale. Adopting the Zhai et al. (2024) scoring setup without adopting in-batch negative mining won't reproduce the same behavior.
 
 ## Appendix: Dense All Action
 
@@ -497,4 +497,4 @@ Capping the horizon at K=10 helped (HR nearly doubled from 0.1300 to 0.2565) bec
 
 **What Dense All Action is actually for.** PinnerFormer introduced this technique for temporal embedding stability at Pinterest. If the model can predict not just the next item but all future items, then user embeddings computed today are still useful for serving recommendations tomorrow. The evaluation in PinnerFormer reflects this: they measure whether embeddings from 24 hours ago still produce good recommendations today. That's a different objective than next-item HR@10.
 
-**Meta's open source HSTU does not use Dense All Action.** Their published ML-20M benchmarks (HR@10 0.3273) use standard next-item sampled softmax loss, the same as our v9. Dense All Action is referenced in the HSTU paper conceptually but is not part of their benchmark code.
+**The open-source generative-recommenders implementation does not use Dense All Action for the ML-20M benchmark.** The Zhai et al. (2024) ML-20M results (HR@10 0.3273) use standard next-item sampled softmax loss, the same as our v9. Dense All Action is referenced conceptually but is not part of the benchmark code.

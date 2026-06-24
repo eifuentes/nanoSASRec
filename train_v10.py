@@ -1,13 +1,13 @@
 """
 train_v10.py - HSTU with training alignment (temperature, L2 norm, collision masking)
 
-Aligns training details with Meta's production HSTU implementation:
+Aligns training details with the Zhai et al. (2024) HSTU setup:
     - L2 normalize output and item embeddings (cosine similarity scoring)
     - Temperature scaling (0.05) sharpens the softmax distribution
     - Collision masking prevents penalizing correct items sampled as negatives
 
 The model architecture is unchanged from v9. These are training signal
-refinements that Meta uses across all their published configs.
+refinements used in the published HSTU benchmark setup.
 
 Run: `uv run python train_v10.py --device cuda`
 

@@ -1,6 +1,8 @@
 # nanoSASRec Walkthrough
 
-Curriculum walkthrough from v1 to v10.
+Curriculum walkthrough from v1 to v10. The reported results below use the fixed
+MovieLens curriculum datasets so they can be compared with published baselines;
+the same training scripts also accept prepared KuaiRand outputs.
 
 Each step comes with commands to reproduce the results. Change `--device` to `cpu`, `mps`, or `cuda` based on the hardware available to you.
 
@@ -14,9 +16,24 @@ Here are known differences from the original SASRec implementation.
 
 These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
 
+## Dataset Selection
+
+Every Python training script accepts `--dataset` and `--data-dir`. The official walkthrough uses `ml-1m` for v1-v4 and `ml-20m` for v5-v10. Prepare another supported dataset first, then pass its output directory to any compatible training script. The `train_v5.sh` convenience wrapper is fixed to the ML-20M depth sweep.
+
+For KuaiRand, preprocessing creates a recipe-stamped output directory. Keep that complete name when training:
+
+```bash
+uv run python data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand-user-floor 5
+uv run python train_v9.py --dataset kuairand-pure-item1-user5 --device cuda
+```
+
+The 27K recipe supports explicit interaction rules, NULL-safe random-impression filtering, DuckDB/Parquet reuse, and analysis-only diagnostics. See [README.md](README.md#prepare-and-train-kuairand) for the complete Pure and 27K commands.
+
+The examples and metric tables in this walkthrough are MovieLens-specific unless a section says otherwise. KuaiRand catalog sizes, sequence lengths, filtering recipes, and user behavior differ substantially, so KuaiRand results are validation experiments rather than replacements for the published ML-1M/ML-20M comparisons.
+
 ## Reading the Metrics
 
-**Avg loss (Sampled Softmax, v2/v4+):** Each training step, the model sees 1 correct item and N random wrong items (256 for ML-1M, 512 for ML-20M) and has to pick the right one. The loss measures how badly it fails at this. If the model has no idea and guesses uniformly across 257 candidates, the probability of guessing right is 1/257 and the loss is -log(1/257) ≈ 5.55. As the model learns, it assigns higher probability to the correct item and the loss drops. The `~X% correct` in the training output is just that probability: how often the model's top pick is actually right.
+**Avg loss (Sampled Softmax, v2/v4+):** Each training step, the model sees 1 correct item and N random wrong items (256 for ML-1M, 512 for ML-20M in the reported runs) and has to pick the right one. The loss measures how badly it fails at this. If the model has no idea and guesses uniformly across 257 candidates, the probability of guessing right is 1/257 and the loss is -log(1/257) ≈ 5.55. As the model learns, it assigns higher probability to the correct item and the loss drops. The `~X% correct` in the training output is just that probability: how often the model's top pick is actually right. For a different dataset, the relevant baseline changes with `num_negatives` and catalog size.
 
 v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it mirrors the equation directly. That version can overflow for very large logits, so v8-v10 switch to the stable `logsumexp` form of the same objective. The training objective does not change, only the numerical implementation does.
 
@@ -31,7 +48,7 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 
 **Validation metrics (during training):** HR@10 and NDCG@10 measured against 100 sampled negatives (1 ground truth + 100 random items). Fast enough to run every 10-20 epochs and gives you directional signal: is the model improving? But the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 18,345.
 
-**Test metrics (final benchmark):** HR@10 and NDCG@10 measured against the full item catalog. The model ranks the ground truth against every item in the dataset: 3,416 items for ML-1M, 18,345 for ML-20M. This is the number you compare against published papers. v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.
+**Test metrics (final benchmark):** HR@10 and NDCG@10 measured against the full item catalog. The model ranks the ground truth against every item in the prepared dataset: 3,416 items for ML-1M, 18,345 for ML-20M, and the recipe-specific catalog for KuaiRand. This is the number you compare against published papers only when the preprocessing and evaluation protocol match. v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.
 
 **HR@10 (Hit Rate):** Did the ground truth item land in the top 10? Yes = 1, no = 0, averaged across all users.
 
@@ -495,3 +512,30 @@ The implementation is memory-efficient: precompute `logsumexp` of negative score
 **What Dense All Action is actually for.** PinnerFormer introduced this technique for temporal embedding stability at Pinterest. If the model can predict not just the next item but all future items, then user embeddings computed today are still useful for serving recommendations tomorrow. The evaluation in PinnerFormer reflects this: they measure whether embeddings from 24 hours ago still produce good recommendations today. That's a different objective than next-item HR@10.
 
 **The open-source generative-recommenders implementation does not use Dense All Action for the ML-20M benchmark.** The Zhai et al. (2024) ML-20M results (HR@10 0.3273) use standard next-item sampled softmax loss, the same as our v9. Dense All Action is referenced conceptually but is not part of the benchmark code.
+
+## Applying The Curriculum To KuaiRand
+
+KuaiRand is supported as a separate dataset family rather than as an additional official benchmark row. Its raw logs contain engagement signals and filtering choices that are not present in MovieLens, so the interaction recipe is part of the experiment definition.
+
+Prepare the confirmed Pure slice for a smaller validation run:
+
+```bash
+uv run python data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand-user-floor 5
+uv run python train_v7.py --dataset kuairand-pure-item1-user5 --device cuda --epochs 50
+```
+
+Prepare the long-view 27K slice when testing longer histories or explicit engagement filtering:
+
+```bash
+uv run python data.py \
+  --dataset kuairand-27k \
+  --kuairand-interaction-rule long-view-not-hate-tab1 \
+  --kuairand-exclude-rand \
+  --kuairand-item-floor 555 \
+  --kuairand-user-floor 5
+uv run python train_v9.py \
+  --dataset kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand \
+  --device cuda --epochs 200 --eval-every 20
+```
+
+Use `--kuairand-analysis-only` to inspect stage counts, tie statistics, and item-frequency profiles before exporting a training split. Each exported recipe records its parameters in `recipe.json`; retain that file with any reported result. The current 27K recipe is a principled long-view engagement slice and is not a reproduction of the FuXi-alpha checksum table.

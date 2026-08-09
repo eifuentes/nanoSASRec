@@ -24,7 +24,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the Zhai et al. (2024) HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+The default quick start uses MovieLens 1M because it is small and is the first dataset in the official curriculum. Train v1 in roughly 7 minutes on a MacBook, then use the [Versions](#versions) and [Datasets](#datasets) tables to choose another dataset. Follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the Zhai et al. (2024) HSTU MovieLens 20M benchmark in roughly 4 hours on a single A100.
 
 ## What to expect
 
@@ -33,17 +33,19 @@ See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of the 10 official versions
 ## What it looks like
 
 ```
-Recent history:  Toy Story (1995), Bug's Life (1998), Antz (1998)
-Ground truth:    Pocahontas (1995)
+Recent history:  item_17, item_42, item_91
+Ground truth:    item_108
 Model top-3:
-  1. Lion King, The (1994)
-  2. Little Mermaid, The (1989)
-  3. Jungle Book, The (1967)
+  1. item_63
+  2. item_12
+  3. item_77
 ```
+
+The training scripts consume the same preprocessed contract for every dataset: user sequences, train/validation/test splits, item IDs, and optional item titles. MovieLens supplies human-readable movie titles; KuaiRand outputs use the available item identity metadata.
 
 ## Versions
 
-| Version | What changes | Dataset | Key finding |
+| Version | What changes | Primary benchmark dataset | Key finding |
 |------|-------------|---------|-------------|
 | `train_v1.py` | Vanilla SASRec + BCE loss | ML-1M | BCE overconfidence problem |
 | `train_v2.py` | Sampled softmax loss | ML-1M | Competition between candidates fixes ranking |
@@ -56,20 +58,52 @@ Model top-3:
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Beats the Zhai et al. (2024) HSTU result by +4.6% |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
 
-Each version is runnable independently. Read v1-v10 in order for the full progression, or jump to any version.
+Each Python training version is runnable independently with `--dataset <prepared-dataset>`. The table shows the dataset used for the reported result, not a hard-coded dataset restriction. `train_v5.sh` remains a convenience wrapper for the fixed ML-20M depth sweep. Read v1-v10 in order for the full progression, or jump to any version.
 
 `train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
 ## Datasets
 
-| Dataset | Role | Users | Items | Avg len | When used |
-|---------|------|-------|-------|---------|-----------|
-| ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
-| ML-20M | Benchmark target | 138,493 | 18,345 | 144.3 | v5-v10 |
+| Dataset | Role | Users | Items | Avg len | Output |
+|---------|------|-------|-------|---------|--------|
+| ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | `ml-1m` |
+| ML-20M | Published-scale benchmark target | 138,493 | 18,345 | 144.3 | `ml-20m` |
+| KuaiRand-Pure | Confirmed FuXi-gamma/Pure validation slice | 25,634 | 7,550 | 55.9 | `kuairand-pure-item1-user5` |
+| KuaiRand-27K | Long-view engagement validation slice | 26,766 | 7,556 | 271.9 | recipe-stamped |
+
+MovieLens is downloaded and converted directly into the standard split format. KuaiRand preprocessing uses typed Parquet plus DuckDB so large 27K recipe sweeps do not repeatedly parse 322M CSV rows. The confirmed Pure recipe is all standard impressions, repeated interactions preserved, `item_floor=1`, and `user_floor=5`. The 27K long-sequence slice is `long_view=1`, `is_hate!=1`, empirical `tab=1`, `is_rand!=1`, `item_floor=555`, and `user_floor=5`. It is a principled long-view engagement slice, not a FuXi-alpha checksum reproduction.
+
+Every KuaiRand output writes a `recipe.json` next to `split.json`. Analysis-only runs also write `analysis.json` plus an item-frequency profile CSV; those files are the provenance trail for choices like the 27K `item_floor=555` boundary. Recipe-stamped dataset names must be passed unchanged to training, for example `kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand`.
+
+### Prepare And Train KuaiRand
+
+Use the Pure slice for a compact engagement dataset:
+
+```bash
+uv run python data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand-user-floor 5
+uv run python train_v9.py --dataset kuairand-pure-item1-user5 --epochs 50 --eval-every 10 --device cuda
+```
+
+Use the 27K recipe for longer sequences and explicit interaction filtering:
+
+```bash
+uv run python data.py \
+  --dataset kuairand-27k \
+  --kuairand-interaction-rule long-view-not-hate-tab1 \
+  --kuairand-exclude-rand \
+  --kuairand-item-floor 555 \
+  --kuairand-user-floor 5
+
+uv run python train_v9.py \
+  --dataset kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand \
+  --epochs 200 --eval-every 20 --device cuda
+```
+
+To inspect a recipe before exporting training files, add `--kuairand-analysis-only`. This writes recipe diagnostics and item-frequency profiles without producing the Python training split. KuaiRand recipes are configurable experiments, so their metrics should not be compared directly with the fixed ML-1M or ML-20M benchmark numbers.
 
 ## Benchmarks
 
-Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset.
+Below is the official full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset. These are the reproducibility results for the MovieLens curriculum; KuaiRand is currently provided for preprocessing validation and additional experiments rather than a published benchmark table.
 
 | Version | What changed | HR@10 | NDCG@10 |
 |---------|-------------|-------|---------|
@@ -99,12 +133,13 @@ See [PAPERS.md](PAPERS.md) for the full research lineage from GRU4Rec through HS
 
 ## Requirements
 
-Python 3.12+ and PyTorch 2.7+. No frameworks, no config systems, no custom CUDA kernels.
+Python 3.12+, PyTorch 2.7+, and DuckDB for KuaiRand preprocessing. No frameworks, no config systems, no custom CUDA kernels.
 
 ```toml
 dependencies = [
     "torch>=2.7",
     "numpy>=1.24",
+    "duckdb>=1.1",
 ]
 ```
 
@@ -118,16 +153,23 @@ uv run ruff check .
 
 ## Remote GPU Training
 
-For longer ML-20M runs, `remote.py` can launch any `train_v*.py` script on [Modal](https://modal.com/). Create a Modal account and authenticate locally before using it.
+For longer runs on ML-20M or KuaiRand, `remote.py` can launch CPU preprocessing jobs and GPU training jobs on [Modal](https://modal.com/). Create a Modal account and authenticate locally before using it. Every remote command must include `--dataset`; the wrapper maps the dataset to its `/volumes/<dataset>` path and overrides any supplied `--data-dir`.
 
 ```bash
 uv sync --group cloud
-uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20m"
+uv run modal run --detach remote.py::prep_job --cmd "python -u data.py --dataset kuairand-27k --kuairand-interaction-rule long-view-not-hate-tab1 --kuairand-exclude-rand --kuairand-item-floor 555 --kuairand-user-floor 5"
+uv run modal run --detach remote.py::train --cmd "python -u train_v9.py --dataset kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand --epochs 200 --eval-every 20 --device cuda"
 ```
 
-`remote.py` automatically preprocesses the requested dataset, mounts the local training scripts and `sasrec/` package, adds `--device cuda`, and persists downloaded data in a _Modal Volume_.
+Preprocessing and training are intentionally separate. `remote.py::prep_job` runs CPU/IO-heavy `data.py` work, persists downloaded data plus DuckDB/Parquet caches in a per-dataset _Modal Volume_, and can be detached safely from your laptop. `remote.py::train` assumes the dataset is already prepared, mounts the same volume, and runs the training command on a GPU. Recipe-stamped KuaiRand datasets reuse the base dataset volume, so a training command points at the stamped output while the volume remains `kuairand-pure` or `kuairand-27k`.
 
-If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
+For the confirmed Pure slice:
+
+```bash
+uv run modal run --detach remote.py::prep_job --cmd "python -u data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand-user-floor 5"
+```
+
+If you plan to fan out several jobs with `sweep.sh` or manually, run one Modal prep job first and let it finish preprocessing. The checked-in `sweep.sh` prepares and launches the official ML-1M/ML-20M curriculum; prepare KuaiRand explicitly using the commands above before launching KuaiRand training jobs. This warms the dataset-specific volume and avoids multiple first-time jobs racing to download, extract, or convert the same dataset. If there are issues with dataset processing you may need to wipe the relevant _Modal Volume_.
 
 You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run.
 

@@ -1,6 +1,6 @@
 [project]
 name = "nanosasrec"
-version = "0.2.1"
+version = "0.3.0"
 description = "From SASRec to HSTU, one file at a time"
 requires-python = ">=3.12"
 dependencies = [

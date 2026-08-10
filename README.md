@@ -16,6 +16,72 @@ Sequential recommendation models the *order* of a user's actions. RNNs (GRU4Rec,
 
 This project builds up SASRec from its original framing all the way to its HSTU variant, one component at a time. Each step fixes one problem, shows the metric improvement, and cites the paper that figured it out. To use LLMs as an analogy: if SASRec is the original Transformer, HSTU is GPT-2. Same model lineage, but with the refinements that unlocked scaling laws. By v10 you'll understand causal self-attention, loss function design for large catalogs, scaling laws for recommendation, and the specific architectural decisions that separate a research baseline from a production system.
 
+## Datasets
+
+The project supports four prepared dataset outputs. MovieLens supplies the fixed datasets used by the official curriculum and benchmark tables. KuaiRand supplies recipe-driven engagement data for preprocessing validation and longer-history experiments.
+
+| Dataset | Role | Users | Items | Avg len | Output |
+|---------|------|-------|-------|---------|--------|
+| MovieLens 1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | `ml-1m` |
+| MovieLens 20M | Published-scale benchmark target | 138,493 | 18,345 | 144.3 | `ml-20m` |
+| KuaiRand-Pure | Standard-impression validation slice | 25,634 | 7,550 | 55.9 | `kuairand-pure-item1-user5` |
+| KuaiRand-27K | Long-view engagement validation slice | 26,766 | 7,556 | 271.9 | recipe-stamped |
+
+### MovieLens 1M
+
+MovieLens 1M is the small, familiar starting point for the curriculum. It is used by v1-v4 for teaching the loss-function and implementation refinements without requiring a large machine. `data.py` downloads the archive and writes the standard split contract directly:
+
+```bash
+uv run python data.py --dataset ml-1m
+uv run python train_v1.py --dataset ml-1m --epochs 200 --eval-every 20
+```
+
+The output contains human-readable movie titles, so prediction examples can display movie names instead of numeric item IDs.
+
+### MovieLens 20M
+
+MovieLens 20M is the official scale-up and benchmark dataset for v5-v10. Its larger user and item populations make depth, relative bias, HSTU, and training-alignment experiments meaningful and allow comparison with published full-catalog results.
+
+```bash
+uv run python data.py --dataset ml-20m
+uv run python train_v9.py --dataset ml-20m --epochs 50 --eval-every 10 --device cuda
+```
+
+The `train_v5.sh` convenience wrapper prepares ML-20M and runs the 2/4/8/16-block depth sweep used by the curriculum.
+
+### KuaiRand-Pure
+
+KuaiRand-Pure is a compact engagement-data validation slice. It keeps standard impressions, preserves repeated interactions, and applies `item_floor=1` and `user_floor=5`. Unlike MovieLens, its item identities do not generally have human-readable titles in this repository.
+
+```bash
+uv run python data.py \
+  --dataset kuairand-pure \
+  --kuairand-item-floor 1 \
+  --kuairand-user-floor 5
+uv run python train_v9.py \
+  --dataset kuairand-pure-item1-user5 \
+  --epochs 50 --eval-every 10 --device cuda
+```
+
+### KuaiRand-27K
+
+KuaiRand-27K is the long-history validation dataset. The maintained recipe keeps `long_view=1`, excludes `is_hate=1` and random impressions, uses the empirical `tab=1` condition, and applies `item_floor=555` and `user_floor=5`. Typed Parquet and DuckDB caches avoid repeatedly parsing the large raw logs during recipe experiments.
+
+```bash
+uv run python data.py \
+  --dataset kuairand-27k \
+  --kuairand-interaction-rule long-view-not-hate-tab1 \
+  --kuairand-exclude-rand \
+  --kuairand-item-floor 555 \
+  --kuairand-user-floor 5
+
+uv run python train_v9.py \
+  --dataset kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand \
+  --epochs 200 --eval-every 20 --device cuda
+```
+
+KuaiRand output names include their recipe parameters and must be passed unchanged to training. Every output writes `recipe.json` next to `split.json`; analysis-only runs also write `analysis.json` and an item-frequency profile CSV. Add `--kuairand-analysis-only` to inspect a recipe before exporting training files.
+
 ## Quick start
 
 ```bash
@@ -24,7 +90,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-The default quick start uses MovieLens 1M because it is small and is the first dataset in the official curriculum. Train v1 in roughly 7 minutes on a MacBook, then use the [Versions](#versions) and [Datasets](#datasets) tables to choose another dataset. Follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the Zhai et al. (2024) HSTU MovieLens 20M benchmark in roughly 4 hours on a single A100.
+The default quick start uses MovieLens 1M because it is small and is the first dataset in the official curriculum. Train v1 in roughly 7 minutes on a MacBook, then use the [Versions](#versions) and [Datasets](#datasets) sections to choose another dataset. Follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the published MovieLens 20M comparisons in roughly 4 hours on a single A100.
 
 ## What to expect
 
@@ -62,48 +128,13 @@ Each Python training version is runnable independently with `--dataset <prepared
 
 `train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
-## Datasets
-
-| Dataset | Role | Users | Items | Avg len | Output |
-|---------|------|-------|-------|---------|--------|
-| ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | `ml-1m` |
-| ML-20M | Published-scale benchmark target | 138,493 | 18,345 | 144.3 | `ml-20m` |
-| KuaiRand-Pure | Confirmed FuXi-gamma/Pure validation slice | 25,634 | 7,550 | 55.9 | `kuairand-pure-item1-user5` |
-| KuaiRand-27K | Long-view engagement validation slice | 26,766 | 7,556 | 271.9 | recipe-stamped |
-
-MovieLens is downloaded and converted directly into the standard split format. KuaiRand preprocessing uses typed Parquet plus DuckDB so large 27K recipe sweeps do not repeatedly parse 322M CSV rows. The confirmed Pure recipe is all standard impressions, repeated interactions preserved, `item_floor=1`, and `user_floor=5`. The 27K long-sequence slice is `long_view=1`, `is_hate!=1`, empirical `tab=1`, `is_rand!=1`, `item_floor=555`, and `user_floor=5`. It is a principled long-view engagement slice, not a FuXi-alpha checksum reproduction.
-
-Every KuaiRand output writes a `recipe.json` next to `split.json`. Analysis-only runs also write `analysis.json` plus an item-frequency profile CSV; those files are the provenance trail for choices like the 27K `item_floor=555` boundary. Recipe-stamped dataset names must be passed unchanged to training, for example `kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand`.
-
-### Prepare And Train KuaiRand
-
-Use the Pure slice for a compact engagement dataset:
-
-```bash
-uv run python data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand-user-floor 5
-uv run python train_v9.py --dataset kuairand-pure-item1-user5 --epochs 50 --eval-every 10 --device cuda
-```
-
-Use the 27K recipe for longer sequences and explicit interaction filtering:
-
-```bash
-uv run python data.py \
-  --dataset kuairand-27k \
-  --kuairand-interaction-rule long-view-not-hate-tab1 \
-  --kuairand-exclude-rand \
-  --kuairand-item-floor 555 \
-  --kuairand-user-floor 5
-
-uv run python train_v9.py \
-  --dataset kuairand-27k-rule-long-view-not-hate-tab1-item555-user5-exclude-rand \
-  --epochs 200 --eval-every 20 --device cuda
-```
-
-To inspect a recipe before exporting training files, add `--kuairand-analysis-only`. This writes recipe diagnostics and item-frequency profiles without producing the Python training split. KuaiRand recipes are configurable experiments, so their metrics should not be compared directly with the fixed ML-1M or ML-20M benchmark numbers.
-
 ## Benchmarks
 
-Below is the official full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset. These are the reproducibility results for the MovieLens curriculum; KuaiRand is currently provided for preprocessing validation and additional experiments rather than a published benchmark table.
+The benchmark tables below only cover datasets and evaluation protocols with relevant published comparisons. The repository does not claim a published KuaiRand benchmark; KuaiRand is currently used for preprocessing validation and additional experiments.
+
+### MovieLens 20M
+
+These are the repository's full-catalog results on MovieLens 20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset.
 
 | Version | What changed | HR@10 | NDCG@10 |
 |---------|-------------|-------|---------|
@@ -117,7 +148,9 @@ Below is the official full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 ep
 | v9 (8 blocks) | + φ1 pre-activation | 0.3425 | 0.2071 |
 | v10 (8 blocks) | + temp + L2 + collision | 0.3355 | 0.2016 |
 
-Compared to Zhai et al. (2024) published results:
+### Published MovieLens comparisons
+
+For context, the following MovieLens 20M full-catalog results were published by Zhai et al. (2024):
 
 | Method | HR@10 | NDCG@10 |
 |--------|-------|---------|

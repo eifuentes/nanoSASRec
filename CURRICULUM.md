@@ -27,7 +27,7 @@ uv run python data.py --dataset kuairand-pure --kuairand-item-floor 1 --kuairand
 uv run python train_v9.py --dataset kuairand-pure-item1-user5 --device cuda
 ```
 
-The 27K recipe supports explicit interaction rules, NULL-safe random-impression filtering, DuckDB/Parquet reuse, and analysis-only diagnostics. See [README.md](README.md#prepare-and-train-kuairand) for the complete Pure and 27K commands.
+The 27K recipe supports explicit interaction rules, NULL-safe random-impression filtering, DuckDB/Parquet reuse, and analysis-only diagnostics. See the [README dataset guide](README.md#datasets) for the complete Pure and 27K commands.
 
 The examples and metric tables in this walkthrough are MovieLens-specific unless a section says otherwise. KuaiRand catalog sizes, sequence lengths, filtering recipes, and user behavior differ substantially, so KuaiRand results are validation experiments rather than replacements for the published ML-1M/ML-20M comparisons.
 

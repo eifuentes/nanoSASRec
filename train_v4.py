@@ -28,13 +28,10 @@ from sasrec.dataset import load_data, load_item_titles, sample_batch
 from sasrec.evaluate import demo, evaluate
 from sasrec.model import SASRec
 
-# Possible datasets for training
-DATASETS = ("ml-1m", "ml-20m")
-
 
 def main():
     parser = argparse.ArgumentParser(description="nanoSASRec train v4")
-    parser.add_argument("--dataset", type=str, default="ml-1m", choices=DATASETS, help="Dataset to use")
+    parser.add_argument("--dataset", type=str, default="ml-1m", help="Dataset directory to use")
     parser.add_argument("--data-dir", type=str, default="data", help="Root data directory")
     parser.add_argument("--batch-size", type=int, default=128, help="Number of examples per batch")
     parser.add_argument("--max-len", type=int, default=200, help="Max sequence length per user")

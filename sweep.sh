@@ -8,6 +8,18 @@ LOG_FILE="$LOG_DIR/sweep_$(date +%Y%m%d_%H%M%S).log"
 echo "Sweep launched at $(date)" | tee "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
 
+declare -a PREP_COMMANDS=(
+    "python -u data.py --dataset ml-1m"
+    "python -u data.py --dataset ml-20m"
+)
+
+echo "Preparing Modal volumes before launching training..." | tee -a "$LOG_FILE"
+for cmd in "${PREP_COMMANDS[@]}"; do
+    echo "Preparing: $cmd" | tee -a "$LOG_FILE"
+    uv run modal run remote.py::prep_job --cmd "$cmd" 2>&1 | tee -a "$LOG_FILE"
+    echo "---" | tee -a "$LOG_FILE"
+done
+
 declare -a COMMANDS=(
     # v4: ML-1M baseline
     "python -u train_v4.py --dataset ml-1m"

@@ -16,7 +16,7 @@ trillion-parameter scale.
 
 ## The SASRec vs. BERT4Rec debate (2019-2022)
 
-- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Established the preprocessing and evaluation standards this repo follows.
+- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Motivates the explicit, reproducible preprocessing and evaluation protocols used for each dataset in this repo.
 
 ## The loss function is the real problem (2023-2025)
 
@@ -48,6 +48,17 @@ underperformance is caused by its loss function, not its architecture.
 - **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Established dataset preprocessing standards used throughout this repo.
 - **Rendle, Zhang & Koren, 2019** (1905.01395): "On the Difficulty of Evaluating Baselines." Carefully tuned vanilla MF beats most newly proposed methods. The reason this repo insists on getting implementation details right before claiming improvements.
 
+### Dataset protocols in this repo
+
+The published curriculum results use MovieLens because its fixed preprocessing and catalog sizes make the v1-v10 progression directly comparable: ML-1M for the small-model lessons and ML-20M for the depth and HSTU-scale benchmark.
+
+KuaiRand is an additional supported dataset family for validating preprocessing, sequence handling, and long-history experiments. Its interaction semantics are defined by an explicit recipe rather than by a single canonical split:
+
+- **KuaiRand-Pure:** all standard impressions with repeated interactions preserved, `item_floor=1`, and `user_floor=5`.
+- **KuaiRand-27K:** `long_view=1`, `is_hate!=1`, empirical `tab=1`, `is_rand!=1`, `item_floor=555`, and `user_floor=5` for the current long-view recipe.
+
+The implementation uses typed Parquet and DuckDB to avoid repeatedly parsing the large raw CSV logs. Each recipe writes `recipe.json`, and analysis-only runs write `analysis.json` plus an item-frequency profile. These artifacts make dataset construction part of the experiment record, which is especially important because KuaiRand metrics are not directly comparable with the MovieLens benchmark tables.
+
 ## The bridge to HSTU (2022-2024)
 
 - **Li, Wang & McAuley, WSDM 2020** (wsdm20b): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute timestamps and time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
@@ -65,7 +76,7 @@ underperformance is caused by its loss function, not its architecture.
 
 These are techniques from the HSTU paper and related work that are not yet implemented but represent natural next steps for this repo.
 
-- **Stochastic Length Training** (Zhai et al., ICML 2024): During training, randomly sample a contiguous subsequence of each user's history instead of always using the most recent max_len items. This lets the model see different windows of user behavior across epochs, learning both recent and historical patterns without increasing sequence length or memory. At Meta's scale with sequences of 8,192+ items, this is critical for making long-sequence training tractable. On ML-20M with sequences averaging 144 items it may not move metrics, but it's an elegant technique worth understanding.
+- **Stochastic Length Training** (Zhai et al., ICML 2024): During training, randomly sample a contiguous subsequence of each user's history instead of always using the most recent max_len items. This lets the model see different windows of user behavior across epochs, learning both recent and historical patterns without increasing sequence length or memory. At Meta's scale with sequences of 8,192+ items, this is critical for making long-sequence training tractable. On the reported ML-20M runs with sequences averaging 144 items it may not move metrics; the longer KuaiRand-27K recipe provides a more relevant local experiment for this idea.
 
 ## Where the field went next (not implemented here)
 

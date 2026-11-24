@@ -29,9 +29,9 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 
 **Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives you 50/50, which maps to a loss of -log(0.5) ≈ 0.69. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things.
 
-**Validation metrics (during training):** HR@10 and NDCG@10 measured against 100 sampled negatives (1 ground truth + 100 random items). Fast enough to run every 10-20 epochs and gives you directional signal: is the model improving? But the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 18,345.
+**Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test numbers then sit on the same scale, and validation becomes a trustworthy signal for picking models and checkpoints.
 
-**Test metrics (final benchmark):** HR@10 and NDCG@10 measured against the full item catalog. The model ranks the ground truth against every item in the dataset: 3,416 items for ML-1M, 18,345 for ML-20M. This is the number you compare against published papers. v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.
+**Test metrics (final benchmark):** HR@10 and NDCG@10 measured against the full item catalog. The model ranks the ground truth against every item in the dataset, except items already in the user's history: 3,416 items for ML-1M and 26,744 for ML-20M. This is the number you compare against published papers. ML-20M uses the same unfiltered catalog as Zhai et al. (2024) and eSASRec (Tikhonovich et al., 2025). v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.
 
 **HR@10 (Hit Rate):** Did the ground truth item land in the top 10? Yes = 1, no = 0, averaged across all users.
 
@@ -305,7 +305,9 @@ For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog 
 
 ### Takeaway
 
-**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 18K items), and from dim=50 to dim=256 with 8 attention heads. This matches the ML-20M benchmark configuration from Guo et al. (2024) and Zhai et al. (2024), so our numbers are directly comparable to theirs.
+> **Note on v5-v11 results:** the ML-20M numbers in v5 through the appendix were produced with v0.2.1, which filtered ML-20M to items with at least 5 ratings (18,345 items). `data.py` now keeps the full 26,744-item catalog used by Zhai et al. (2024) and eSASRec, and those sections will be re-run on it. Until then, compare versions with each other, not with published numbers: the smaller catalog makes ranking easier.
+
+**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 27K items), and from dim=50 to dim=256 with 8 attention heads. This matches the ML-20M benchmark configuration and item catalog from Guo et al. (2024) and Zhai et al. (2024).
 
 **Results on ML-20M (50 epochs, dim=256, heads=8, batch=128, seed=42, full-catalog eval):**
 
@@ -411,7 +413,7 @@ Three things change from SASRec's Transformer block:
 
 **The architecture swap is not a clear win at this scale.** v8 HSTU (0.3339) beats the v5 8-block SASRec baseline (0.3237), but lands below v6 ReZero (0.3365) and v7 relative bias (0.3457). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
 
-**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats the Zhai et al. (2024) HSTU result (0.3273) by +5.6% without changing the attention mechanism. Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in the published benchmark.
+**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats the Zhai et al. (2024) HSTU result (0.3273) by +5.6% without changing the attention mechanism. (This was measured on the v0.2.1 18,345-item catalog, so the comparison to Zhai et al. is pending a re-run. See the note in v5.) Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in the published benchmark.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -435,7 +437,7 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 | **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3425** | **0.2071** |
 | HSTU (Zhai et al., 2024) | — | 0.3273 | 0.1895 |
 
-**φ1 improved over v8 by +2.6% HR.** v9 beats the Zhai et al. (2024) HSTU result by +4.6% HR and +9.3% NDCG. But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
+**φ1 improved over v8 by +2.6% HR.** v9 beats the Zhai et al. (2024) HSTU result by +4.6% HR and +9.3% NDCG (on the v0.2.1 18,345-item catalog, so this is pending a re-run; see the note in v5). But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
 
 ## v10: Training Alignment
 

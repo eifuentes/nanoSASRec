@@ -2,15 +2,22 @@
 nanoSASRec data preprocessing.
 
 Downloads and preprocesses datasets for sequential recommendation.
-Uses the exact same preprocessing as the BERT4Rec repository
-(Petrov & Macdonald, RecSys 2022 - arxiv:2207.07483) to ensure
-reproducibility with published numbers.
+Each dataset follows the protocol of the papers we compare against, so
+our numbers are comparable with their published results.
 
-Protocol:
+Shared protocol:
   - Treat ratings/reviews as implicit feedback (binary interaction)
-  - Sort interactions by timestamp per user
-  - k-core filtering: discard users and items with < 5 interactions
+  - Sort interactions by timestamp per user (stable sort: ties keep file order)
   - Leave-one-out split: last item = test, second-to-last = valid, rest = train
+
+Per-dataset filtering:
+  - ml-1m:  5-core on users and items, as in SASRec / BERT4Rec
+            (Kang & McAuley 2018, Petrov & Macdonald 2022 - arxiv:2207.07483).
+            6,040 users, 3,416 items.
+  - ml-20m: no k-core filtering, so the full 26,744-item catalog is kept. This is
+            the catalog used by HSTU (Zhai et al. 2024 - arxiv:2402.17152) and
+            eSASRec (Tikhonovich et al., RecSys 2025 - arxiv:2508.06450).
+            138,493 users, 26,744 items.
 
 Usage:
   python data.py                    # downloads and preprocesses ML-1M
@@ -431,12 +438,21 @@ DATASETS = {
         # Expected stats (CL4SRec, 2010.14395):
         #   Users: 22,363  Items: 12,101  Avg actions/user: 8.8
     },
+    # MovieLens-20M on the HSTU / eSASRec protocol (Zhai et al. 2024, Tikhonovich et al. 2025)
+    # - no k-core filtering. GroupLens already guarantees >= 20 ratings per user, and items
+    #   are not filtered, so the long tail stays in the catalog. Item 5-core filtering
+    #   (used in nanoSASRec <= v0.2.1) drops ~8.4k items, makes ranking easier, and breaks
+    #   comparability with published ML-20M numbers.
+    # - ties on timestamp keep their ratings.csv order (stable sort in reindex_and_split).
+    #   This is the same tie-break eSASRec uses (pandas rank(method="first")). eSASRec found that
+    #   the HSTU and FuXi-α preprocessing reorders tied interactions, which changes ~25% of the
+    #   test set, and recomputed those models' metrics on the order-preserving split.
     "ml-20m": {
         "loader": load_ml20m_raw,
-        "kcore": True,
+        "kcore": False,
         "titles_writer": write_item_titles_ml20m,
-        # Expected stats after this repo's preprocessing:
-        #   Users: 138,493  Items: 18,345  Avg actions/user: 144.3
+        # verified in main(): preprocessing fails loudly if these drift
+        "expected": {"num_users": 138_493, "num_items": 26_744, "num_interactions": 20_000_263},
     },
 }
 
@@ -466,12 +482,23 @@ def main():
         filtered = kcore_filter(raw, k=5)
         print(f"  After filtering: {len(filtered)} (removed {len(raw) - len(filtered)})")
     else:
-        print("\n[2/4] Skipping k-core (pre-filtered dataset)")
+        print("\n[2/4] Skipping k-core (not part of this dataset's protocol)")
         filtered = raw
 
     # step 3: reindex and split
     print("\n[3/4] Reindexing and splitting ...")
     dataset = reindex_and_split(filtered)
+
+    # sanity check against published dataset statistics, when the protocol pins them down
+    expected = ds.get("expected")
+    if expected:
+        actual = {"num_users": dataset.num_users, "num_items": dataset.num_items, "num_interactions": len(filtered)}
+        mismatches = {k: (actual[k], v) for k, v in expected.items() if actual[k] != v}
+        if mismatches:
+            raise ValueError(
+                f"{args.dataset} stats do not match the published protocol (actual, expected): {mismatches}"
+            )
+        print(f"  Stats match published protocol: {expected}")
 
     # step 4: write outputs
     out_dir = os.path.join(args.data_dir, args.dataset)

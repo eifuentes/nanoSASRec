@@ -53,7 +53,7 @@ Model top-3:
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero > 16 blocks without |
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo, biggest single improvement |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
-| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Beats the Zhai et al. (2024) HSTU result by +4.6% |
+| `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Recovers most of v8's gap to v7 |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
 
 Each version is runnable independently. Read v1-v10 in order for the full progression, or jump to any version.
@@ -65,9 +65,15 @@ Each version is runnable independently. Read v1-v10 in order for the full progre
 | Dataset | Role | Users | Items | Avg len | When used |
 |---------|------|-------|-------|---------|-----------|
 | ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
-| ML-20M | Benchmark target | 138,493 | 18,345 | 144.3 | v5-v10 |
+| ML-20M | Benchmark target | 138,493 | 26,744 | 144.4 | v5-v10 |
+
+ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering, so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` checks the processed statistics against these published numbers. Up to v0.2.1, nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
+
+From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled validation (100 negatives) because they teach loss functions.
 
 ## Benchmarks
+
+> **Note:** the numbers below are from v0.2.1, which used the item 5-core ML-20M (18,345 items). They have not yet been re-run on the current full 26,744-item catalog. Ranking against a smaller catalog is easier, so they are **not** directly comparable with the published results further down.
 
 Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset.
 
@@ -83,13 +89,18 @@ Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) fro
 | v9 (8 blocks) | + φ1 pre-activation | 0.3425 | 0.2071 |
 | v10 (8 blocks) | + temp + L2 + collision | 0.3355 | 0.2016 |
 
-Compared to Zhai et al. (2024) published results:
+Published results on the full 26,744-item ML-20M catalog:
 
-| Method | HR@10 | NDCG@10 |
-|--------|-------|---------|
-| SASRec | 0.2889 | 0.1621 |
-| HSTU | 0.3273 | 0.1895 |
-| HSTU-large | 0.3556 | 0.2098 |
+| Source | Method | HR@10 | NDCG@10 |
+|--------|--------|-------|---------|
+| Zhai et al. (2024) | SASRec | 0.2889 | 0.1621 |
+| Zhai et al. (2024) | HSTU | 0.3273 | 0.1895 |
+| Zhai et al. (2024) | HSTU-large | 0.3556 | 0.2098 |
+| Tikhonovich et al. (2025) | eSASRec (4 blocks) | 0.3289 | 0.1966 |
+| Tikhonovich et al. (2025) | eSASRec (8 blocks) | 0.3457 | 0.2107 |
+| Tikhonovich et al. (2025) | HSTU, recomputed (8 blocks) | 0.3464 | 0.2040 |
+
+eSASRec's numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU row is HSTU's original code re-run on the same order-preserving split that `data.py` produces.
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

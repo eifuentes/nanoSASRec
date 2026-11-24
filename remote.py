@@ -29,7 +29,7 @@ data_volume = modal.Volume.from_name("nanoSASRec-data", create_if_missing=True)
 @app.function(
     image=image,
     gpu="A10",
-    timeout=28800,  # 8 hours
+    timeout=86400,  # 24 hours, Modal's max. 16-block ML-20M runs take ~6h on an A10. Billing is per second used.
     volumes={"/app/data": data_volume},
 )
 def train(cmd: str):
@@ -41,6 +41,9 @@ def train(cmd: str):
     dataset = dataset_match.group(1) if dataset_match else "ml-1m"
 
     subprocess.run(f"python -u data.py --dataset {dataset}", shell=True, cwd="/app", check=True)
+    # Commit the downloaded and processed data right away, not only when training finishes.
+    # Jobs launched after this point find the dataset on the volume and skip the download.
+    data_volume.commit()
     subprocess.run(cmd, shell=True, cwd="/app", check=True)
     data_volume.commit()
 

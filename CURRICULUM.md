@@ -278,12 +278,16 @@ Estimate batches per epoch: 47
 
 | Metric | v2 (SSM) | v4 (SSM + refinements) |
 |--------|----------|------------------------|
-| Val HR@10 | 0.7922 | 0.8490 |
-| Val NDCG@10 | 0.5699 | 0.6392 |
-| Test HR@10 (full-catalog) | — | 0.3018 |
-| Test NDCG@10 (full-catalog) | — | 0.1730 |
+| Val HR@10 (sampled, 100 negatives)* | 0.7922 | 0.8490 |
+| Val NDCG@10 (sampled, 100 negatives)* | 0.5699 | 0.6392 |
+| Val HR@10 (full-catalog) | — | 0.3189 |
+| Val NDCG@10 (full-catalog) | — | 0.1760 |
+| Test HR@10 (full-catalog) | — | 0.3017 |
+| Test NDCG@10 (full-catalog) | — | 0.1718 |
 
-Look at the gap between validation and test. Val HR is 0.85 (ranking against 101 items), test HR is 0.30 (ranking against all 3,416 items). Same model, same predictions, wildly different numbers. This is why full-catalog eval matters: sampled eval makes everything look good.
+\*v4's sampled validation numbers are from v0.2.1, before v4+ switched to full-catalog validation. They are kept so v2 and v4 can be compared on the same metric.
+
+Look at the gap between the two kinds of validation. Ranked against 101 items, v4's validation HR was 0.85. Ranked against all 3,416 items, it is 0.32, close to the test HR of 0.30. Same model, same predictions, wildly different numbers. This is why full-catalog eval matters: sampled eval makes everything look good. It is also why v4+ validate on the full catalog: validation should predict test.
 
 For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +5.8% HR despite using the same architecture. The difference is entirely the refinements below.
 

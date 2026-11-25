@@ -50,8 +50,8 @@ Model top-3:
 | `train_v3.py` | gBCE loss + calibration | ML-1M | Calibrated probabilities, but SSM ranks better |
 | `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +14% NDCG |
 | `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, diminishing returns after 8 |
-| `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero > 16 blocks without |
-| `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo, biggest single improvement |
+| `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero matches 16 blocks without |
+| `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Recovers most of v8's gap to v7 |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Production techniques need in-batch negatives to help |
@@ -73,21 +73,21 @@ From v4 onward, validation and test metrics rank the ground truth against the fu
 
 ## Benchmarks
 
-> **Note:** the numbers below are from v0.2.1, which used the item 5-core ML-20M (18,345 items). They have not yet been re-run on the current full 26,744-item catalog. Ranking against a smaller catalog is easier, so they are **not** directly comparable with the published results further down.
-
-Below is the full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs) from v5-v10. Every model ranks the ground truth against all 18,345 items, not a sampled subset.
+Full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs, one A10 GPU). Every model ranks the ground truth against all 26,744 items, not a sampled subset. v7 and v9 are the mean ± standard deviation over seeds 42, 43 and 44. The other rows use seed 42.
 
 | Version | What changed | HR@10 | NDCG@10 |
 |---------|-------------|-------|---------|
-| v5 (2 blocks) | SASRec baseline | 0.3009 | 0.1760 |
-| v5 (4 blocks) | + depth | 0.3149 | 0.1869 |
-| v5 (8 blocks) | + more depth | 0.3237 | 0.1941 |
-| v5 (16 blocks) | + even more depth | 0.3350 | 0.2026 |
-| v6 (8 blocks) | + ReZero | 0.3365 | 0.2020 |
-| **v7 (8 blocks)** | **+ relative bias** | **0.3457** | **0.2085** |
-| v8 (8 blocks) | HSTU architecture | 0.3339 | 0.2006 |
-| v9 (8 blocks) | + φ1 pre-activation | 0.3425 | 0.2071 |
-| v10 (8 blocks) | + temp + L2 + collision | 0.3355 | 0.2016 |
+| v5 (2 blocks) | SASRec baseline | 0.2938 | 0.1713 |
+| v5 (4 blocks) | + depth | 0.3098 | 0.1830 |
+| v5 (8 blocks) | + more depth | 0.3196 | 0.1912 |
+| v5 (16 blocks) | + even more depth | 0.3280 | 0.1970 |
+| v6 (8 blocks) | + ReZero | 0.3287 | 0.1973 |
+| **v7 (8 blocks)** | **+ relative bias** | **0.3380 ± 0.0009** | **0.2025 ± 0.0011** |
+| v8 (8 blocks) | HSTU architecture | 0.3236 | 0.1929 |
+| v9 (8 blocks) | + φ1 pre-activation | 0.3354 ± 0.0009 | 0.2008 ± 0.0000 |
+| v10 (8 blocks) | + temp + L2 + collision | 0.3269 | 0.1949 |
+
+Seed-to-seed spread is about 0.1 points of HR@10, well below the gaps between versions. v0.2.1 reported these versions on the item 5-core ML-20M (18,345 items). Those numbers were 0.4 to 1.0 points of HR@10 higher, because the smaller catalog makes ranking easier, but the 8-block versions ranked in the same order (v7 > v9 > v6 > v10 > v8 > v5).
 
 Published results on the full 26,744-item ML-20M catalog:
 
@@ -101,6 +101,8 @@ Published results on the full 26,744-item ML-20M catalog:
 | Tikhonovich et al. (2025) | HSTU, recomputed (8 blocks) | 0.3464 | 0.2040 |
 
 eSASRec's numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU row is HSTU's original code re-run on the same order-preserving split that `data.py` produces.
+
+The eSASRec rows are the closest comparison because they use the same split. At 8 blocks, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8. One known difference is that nanoSASRec does not yet handle long sequences the way the reference training does (see Stochastic Length training in the [Roadmap](#roadmap)). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

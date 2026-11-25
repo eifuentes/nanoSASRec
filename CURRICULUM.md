@@ -309,22 +309,22 @@ For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog 
 
 ### Takeaway
 
-> **Note on v5-v11 results:** the ML-20M numbers in v5 through the appendix were produced with v0.2.1, which filtered ML-20M to items with at least 5 ratings (18,345 items). `data.py` now keeps the full 26,744-item catalog used by Zhai et al. (2024) and eSASRec, and those sections will be re-run on it. Until then, compare versions with each other, not with published numbers: the smaller catalog makes ranking easier.
+> **Note on v5-v10 results:** these numbers use the full 26,744-item ML-20M catalog, the same catalog as Zhai et al. (2024) and eSASRec (Tikhonovich et al., 2025). v0.2.1 filtered ML-20M to items with at least 5 ratings (18,345 items). Its numbers were 0.4 to 1.0 points of HR@10 higher, because the smaller catalog makes ranking easier, but the 8-block versions ranked in the same order (v7 > v9 > v6 > v10 > v8 > v5). v7 and v9 report the mean ± standard deviation over seeds 42, 43 and 44. The seed-to-seed spread, about 0.1 points of HR@10, is well below the gaps between versions.
 
 **What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 27K items), and from dim=50 to dim=256 with 8 attention heads. This matches the ML-20M benchmark configuration and item catalog from Guo et al. (2024) and Zhai et al. (2024).
 
-**Results on ML-20M (50 epochs, dim=256, heads=8, batch=128, seed=42, full-catalog eval):**
+**Results on ML-20M (50 epochs, dim=256, heads=8, batch=128, seed=42, full-catalog eval, one A10 GPU):**
 
 | Blocks | Params | Test HR@10 | Test NDCG@10 | Time/epoch |
 |--------|--------|------------|--------------|------------|
-| 2 | 5.5M | 0.3009 | 0.1760 | ~75s |
-| 4 | 6.3M | 0.3149 | 0.1869 | ~120s |
-| 8 | 7.9M | 0.3237 | 0.1941 | ~230s |
-| 16 | 11.1M | 0.3350 | 0.2026 | ~420s |
+| 2 | 7.7M | 0.2938 | 0.1713 | ~73s |
+| 4 | 8.5M | 0.3098 | 0.1830 | ~123s |
+| 8 | 10.1M | 0.3196 | 0.1912 | ~222s |
+| 16 | 13.2M | 0.3280 | 0.1970 | ~419s |
 
-**Depth pays off.** Going from 2 to 16 blocks improves HR by +11.3% and NDCG by +15.1%. This is a clear, monotonic improvement across every depth we tested.
+**Depth pays off.** Going from 2 to 16 blocks improves HR by +11.6% and NDCG by +15.0%. This is a clear, monotonic improvement across every depth we tested. Validation HR@10 was still rising at epoch 50 for every depth, so these runs are not fully converged.
 
-**But depth has diminishing returns.** Each doubling of depth costs roughly 2x the training time but delivers similar or less improvement. At 16 blocks you're spending 5.6x the compute of 2 blocks for +11% quality. The natural next question is whether we can get more from the depth we already have rather than just stacking more blocks.
+**But depth has diminishing returns.** Each doubling of depth costs roughly 2x the training time but delivers similar or less improvement. At 16 blocks you're spending 5.7x the compute of 2 blocks for +12% quality. The natural next question is whether we can get more from the depth we already have rather than just stacking more blocks.
 
 ## v6: ReZero Residual Scaling
 
@@ -342,12 +342,12 @@ For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog 
 
 | Config | Blocks | Params | Test HR@10 | Test NDCG@10 |
 |--------|--------|--------|------------|--------------|
-| v5 | 2 | 5.5M | 0.3009 | 0.1760 |
-| v5 | 8 | 7.9M | 0.3237 | 0.1941 |
-| v5 | 16 | 11.1M | 0.3350 | 0.2026 |
-| v6 (ReZero) | 8 | 7.9M | 0.3365 | 0.2020 |
+| v5 | 2 | 7.7M | 0.2938 | 0.1713 |
+| v5 | 8 | 10.1M | 0.3196 | 0.1912 |
+| v5 | 16 | 13.2M | 0.3280 | 0.1970 |
+| v6 (ReZero) | 8 | 10.1M | 0.3287 | 0.1973 |
 
-ReZero at 8 blocks matches plain SASRec at 16 blocks (0.3365 vs 0.3350) with 3.2M fewer parameters and half the training time. 16 scalar parameters did what doubling the model couldn't.
+ReZero at 8 blocks matches plain SASRec at 16 blocks (0.3287 vs 0.3280) with 3.2M fewer parameters and just over half the training time per epoch (233s vs 419s). 16 scalar parameters buy as much as doubling the depth.
 
 ## v7: Relative Position & Temporal Bias
 
@@ -374,14 +374,14 @@ Negative values mean "this item is in the future." Causal masking zeros those ou
 
 We do the same with timestamps. If item_2 happened Monday and item_5 happened the following Thursday, the temporal distance is 3 days. Raw distances can be huge (months apart), so we compress them into 32 log-spaced buckets. Buckets 0-15 cover small distances with fine resolution (0, 1, 2, ... 15 apart). Buckets 16-31 cover larger distances logarithmically (16, 24, 36, ... 200+). Each bucket gets a learnable bias per attention head.
 
-**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v6 is seed 42, v7 is mean ± std over seeds 42-44):**
 
 | Config | Test HR@10 | Test NDCG@10 |
 |--------|------------|--------------|
-| v6 (ReZero, absolute pos) | 0.3365 | 0.2020 |
-| v7 (ReZero, relative + temporal) | 0.3457 | 0.2085 |
+| v6 (ReZero, absolute pos) | 0.3287 | 0.1973 |
+| v7 (ReZero, relative + temporal) | 0.3380 ± 0.0009 | 0.2025 ± 0.0011 |
 
-**Relative bias is the single biggest contributor in the repo.** v7 beats v6 by +2.7% HR and +3.2% NDCG. Unlike absolute position embeddings that encode "what slot is this," relative bias encodes "how far apart are these items" which is what actually matters for sequential patterns. The temporal bias adds real signal too, "items consumed in the same session" gets a different learned weight than "items months apart."
+**Relative bias is as big a step as ReZero, and makes v7 the best model in the repo.** v7 beats v6 by +2.8% HR and +2.6% NDCG, the same +2.8% HR that ReZero added over plain 8-block SASRec. Unlike absolute position embeddings that encode "what slot is this," relative bias encodes "how far apart are these items" which is what actually matters for sequential patterns. The temporal bias adds real signal too, "items consumed in the same session" gets a different learned weight than "items months apart."
 
 The compactness that originally seemed like a liability (256 parameters vs 50,944 for absolute) is actually a strength. Relative bias uses 32 shared buckets across all positions, which acts as a strong inductive bias, the model must learn general distance patterns rather than memorizing per-slot behavior. This regularization effect compounds with ReZero's residual stabilization.
 
@@ -403,21 +403,23 @@ Three things change from SASRec's Transformer block:
 
 **3. Gating replaces the feed-forward network.** SASRec uses a 2-layer FFN after attention. HSTU replaces it with a pointwise gate: a separate projection U(X) from the raw input gets multiplied element-wise with the attention output. Each feature dimension is the product of "what attention found" and "what the raw input says." This lets the model selectively pass, amplify, or suppress each dimension. Same idea as SwiGLU in LLaMA.
 
-**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; seed 42 except v7, which is mean ± std over seeds 42-44):**
 
 | Config | Test HR@10 | Test NDCG@10 |
 |--------|------------|--------------|
-| v5 blocks=8 (SASRec) | 0.3237 | 0.1941 |
-| v6 (+ ReZero) | 0.3365 | 0.2020 |
-| **v7 (+ relative bias)** | **0.3457** | **0.2085** |
-| v8 (HSTU) | 0.3339 | 0.2006 |
+| v5 blocks=8 (SASRec) | 0.3196 | 0.1912 |
+| v6 (+ ReZero) | 0.3287 | 0.1973 |
+| **v7 (+ relative bias)** | **0.3380 ± 0.0009** | **0.2025 ± 0.0011** |
+| v8 (HSTU) | 0.3236 | 0.1929 |
 | SASRec (Zhai et al., 2024) | 0.2889 | 0.1621 |
 | HSTU (Zhai et al., 2024) | 0.3273 | 0.1895 |
 | HSTU-large (Zhai et al., 2024) | 0.3556 | 0.2098 |
+| HSTU, recomputed (Tikhonovich et al., 2025) | 0.3464 | 0.2040 |
+| eSASRec, 8 blocks (Tikhonovich et al., 2025) | 0.3457 | 0.2107 |
 
-**The architecture swap is not a clear win at this scale.** v8 HSTU (0.3339) beats the v5 8-block SASRec baseline (0.3237), but lands below v6 ReZero (0.3365) and v7 relative bias (0.3457). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
+**The architecture swap is not a clear win at this scale.** v8 HSTU (0.3236) beats the v5 8-block SASRec baseline (0.3196), but lands below v6 ReZero (0.3287) and v7 relative bias (0.3380). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
 
-**The bigger finding.** Our v7 SASRec+ReZero+relative bias (0.3457) beats the Zhai et al. (2024) HSTU result (0.3273) by +5.6% without changing the attention mechanism. (This was measured on the v0.2.1 18,345-item catalog, so the comparison to Zhai et al. is pending a re-run. See the note in v5.) Training improvements and proper relative bias implementation explain most of the gap between "old SASRec" and "HSTU" in the published benchmark.
+**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. v8's validation curve had nearly flattened by epoch 50 (+0.2 points over its last 10 epochs), so more epochs alone are unlikely to close that gap. One known difference is long-sequence handling, which the reference training uses and nanoSASRec does not yet have (see Stochastic Length training in the README roadmap). A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and lands within a point of the published state of the art, without changing the attention mechanism.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -433,15 +435,16 @@ This matters because the projections must be combined. LayerNorm computes statis
 
 The result is that Q, K, V, U become nonlinear functions of the input before they interact. In v8, attention scores were a bilinear form (linear Q dotted with linear K). In v9, both Q and K pass through a nonlinearity first, giving the model a richer set of patterns it can represent.
 
-**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v8 is seed 42, v9 is mean ± std over seeds 42-44):**
 
 | Config | Params | Test HR@10 | Test NDCG@10 |
 |--------|--------|------------|--------------|
-| v8 (HSTU, separate projections) | 7.3M | 0.3339 | 0.2006 |
-| **v9 (HSTU, combined + φ1)** | **7.3M** | **0.3425** | **0.2071** |
+| v8 (HSTU, separate projections) | 9.5M | 0.3236 | 0.1929 |
+| **v9 (HSTU, combined + φ1)** | **9.5M** | **0.3354 ± 0.0009** | **0.2008 ± 0.0000** |
 | HSTU (Zhai et al., 2024) | — | 0.3273 | 0.1895 |
+| HSTU, recomputed (Tikhonovich et al., 2025) | — | 0.3464 | 0.2040 |
 
-**φ1 improved over v8 by +2.6% HR.** v9 beats the Zhai et al. (2024) HSTU result by +4.6% HR and +9.3% NDCG (on the v0.2.1 18,345-item catalog, so this is pending a re-run; see the note in v5). But v7 SASRec+ReZero+relative bias (0.3457) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
+**φ1 improved over v8 by +3.6% HR and +4.1% NDCG.** That recovers 82% of v8's gap to v7 and brings v9 within 1.1 points of HR@10 of the recomputed HSTU. v9 also learns fastest: at epoch 10 its validation HR@10 is 0.3356, against 0.3281 for v7, though v7 catches up by epoch 30. But v7 SASRec+ReZero+relative bias (0.3380) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.
 
 ## v10: Training Alignment
 
@@ -457,18 +460,18 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 **Temperature scaling.** Divide all logits by a temperature parameter (0.05) before the softmax loss. With cosine similarity in [-1, 1], dividing by 0.05 scales logits to [-20, 20]. This forces the softmax to commit hard to its top picks. A higher temperature (softer distribution) lets the model be vague about rankings.
 
-**Collision masking.** If a randomly sampled negative happens to be the same item as the positive target, mask it to negative infinity before the loss. Without this, the model occasionally gets penalized for scoring a correct item highly. With 512 negatives out of 18,345 items, collisions happen about 2.8% of the time per position.
+**Collision masking.** If a randomly sampled negative happens to be the same item as the positive target, mask it to negative infinity before the loss. Without this, the model occasionally gets penalized for scoring a correct item highly. With 512 negatives out of 26,744 items, the positive lands among the negatives about 1.9% of the time per position.
 
 These are standard techniques in production recommendation systems and appear in the Zhai et al. (2024) HSTU training setup.
 
-**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v10 is seed 42, v9 is mean ± std over seeds 42-44):**
 
 | Config | HR@10 | NDCG@10 |
 |--------|-------|---------|
-| v9 (raw dot products) | 0.3425 | 0.2071 |
-| v10 temp=0.05 | 0.3355 | 0.2016 |
+| v9 (raw dot products) | 0.3354 ± 0.0009 | 0.2008 ± 0.0000 |
+| v10 temp=0.05 | 0.3269 | 0.1949 |
 
-**These techniques didn't help at our scale.** v10 slightly underperformed v9 across all temperatures tested. The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
+**These techniques didn't help at our scale.** v10 underperformed v9 by 0.9 points of HR@10, as it did on the v0.2.1 catalog across every temperature tried there. The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
 
 Random negatives are "easy" because they're mostly items from completely different categories. The model quickly learns to reject them and doesn't need temperature sharpening to separate them. In-batch negatives are "hard" because they're items other users actually interacted with, forcing finer distinctions. That's where temperature sharpening and cosine similarity pay off.
 
@@ -489,12 +492,12 @@ L2 normalization also removes a degree of freedom. Without it, the model can use
 
 The implementation is memory-efficient: precompute `logsumexp` of negative scores once per position, then reuse it for every future target. Total extra memory is one (batch, seq_len, seq_len) tensor.
 
-**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
+**Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v11 is seed 42, v9 is mean ± std over seeds 42-44):**
 
 | Variant | HR@10 | NDCG@10 |
 |---------|-------|---------|
-| v9 (next-item only) | 0.3425 | 0.2071 |
-| Dense All Action (K=10 horizon) | 0.2565 | 0.1416 |
+| v9 (next-item only) | 0.3354 ± 0.0009 | 0.2008 ± 0.0000 |
+| Dense All Action (K=10 horizon) | 0.2507 | 0.1375 |
 
 **Why it doesn't work for next-item evaluation.** For a sequence of length 199 with horizon K=10, each position predicts its next 10 items. The next-item prediction (the diagonal) is 1 out of 10 targets, so only 10% of the gradient signal targets the metric we actually evaluate on. The other 90% optimizes for predicting items 2-10 steps ahead.
 

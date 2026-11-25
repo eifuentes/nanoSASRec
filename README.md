@@ -67,7 +67,7 @@ Each version is runnable independently. Read v1-v10 in order for the full progre
 | ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
 | ML-20M | Benchmark target | 138,493 | 26,744 | 144.4 | v5-v10 |
 
-ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering, so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` checks the processed statistics against these published numbers. Up to v0.2.1, nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
+ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering, so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` verifies each download against the MD5 GroupLens publishes, checks the processed statistics against the published numbers, and writes a `metadata.json` next to `split.json` that records the source and protocol. Up to v0.2.1, nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
 
 From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled validation (100 negatives) because they teach loss functions.
 
@@ -119,13 +119,16 @@ dependencies = [
 ]
 ```
 
-If you plan to edit the repo, install the dev tools and run Ruff before committing changes:
+If you plan to edit the repo, install the dev tools and run Ruff and the tests before committing changes:
 
 ```bash
 uv sync --group dev
 uv run ruff format .
 uv run ruff check .
+uv run pytest
 ```
+
+The tests are deliberately few. They cover the protocol decisions that published comparisons depend on: the leave-one-out split with its tie-break, and full-catalog ranking with history masking.
 
 ## Remote GPU Training
 

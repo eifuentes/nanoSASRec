@@ -25,6 +25,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import zipfile
@@ -42,15 +43,38 @@ URLS = {
     "ml-20m": "https://files.grouplens.org/datasets/movielens/ml-20m.zip",
 }
 
+# MD5 checksums that GroupLens publishes next to each zip (<url>.md5)
+MD5 = {
+    "ml-1m": "c4d9eecfca2ab87c1945afe126590906",
+    "ml-20m": "cd245b17a1ae2cc31bb14903e1204af3",
+}
 
-def download(url: str, dest: str):
-    """Download a file if it doesn't already exist."""
+
+def md5sum(path: str) -> str:
+    """MD5 of a file, read in 1 MB chunks so large zips don't load into memory."""
+    digest = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download(url: str, dest: str, md5: str):
+    """Download a file if it doesn't already exist, then verify its checksum.
+
+    The check also runs on a file that is already on disk, so an interrupted
+    download or a different release of the dataset fails here instead of
+    silently producing a different split.
+    """
     if os.path.exists(dest):
         print(f"  already exists: {dest}")
-        return
-    print(f"  downloading {url} ...")
-    urlretrieve(url, dest)
-    print(f"  saved to {dest}")
+    else:
+        print(f"  downloading {url} ...")
+        urlretrieve(url, dest)
+        print(f"  saved to {dest}")
+    actual = md5sum(dest)
+    if actual != md5:
+        raise ValueError(f"{dest} has MD5 {actual}, expected {md5}. Delete it and re-run to download it again.")
 
 
 def extract_zip(zip_path: str, extract_to: str):
@@ -69,7 +93,7 @@ def extract_zip(zip_path: str, extract_to: str):
 def load_ml1m_raw(data_dir: str):
     """Load MovieLens-1M raw interactions."""
     zip_path = os.path.join(data_dir, "ml-1m.zip")
-    download(URLS["ml-1m"], zip_path)
+    download(URLS["ml-1m"], zip_path, MD5["ml-1m"])
     raw_dir = os.path.join(data_dir, "ml-1m")
     if not os.path.isdir(raw_dir):
         extract_zip(zip_path, data_dir)
@@ -86,7 +110,7 @@ def load_ml1m_raw(data_dir: str):
 def load_ml20m_raw(data_dir: str):
     """Load MovieLens-20M raw interactions."""
     zip_path = os.path.join(data_dir, "ml-20m.zip")
-    download(URLS["ml-20m"], zip_path)
+    download(URLS["ml-20m"], zip_path, MD5["ml-20m"])
     raw_dir = os.path.join(data_dir, "ml-20m")
     if not os.path.isdir(raw_dir):
         extract_zip(zip_path, data_dir)
@@ -327,6 +351,23 @@ def write_split(dataset: DatasetSplit, out_dir: str):
     print(f"  Wrote split to {split_path}")
 
 
+def write_metadata(name: str, dataset: DatasetSplit, num_interactions: int, kcore: bool, out_dir: str):
+    """Record which source file and protocol produced split.json, so a split on disk explains itself."""
+    metadata = {
+        "dataset": name,
+        "source": {"url": URLS.get(name), "md5": MD5.get(name)},
+        "kcore": 5 if kcore else None,
+        "split": "leave-one-out; per-user timestamp sort, ties keep source file order",
+        "num_users": dataset.num_users,
+        "num_items": dataset.num_items,
+        "num_interactions": num_interactions,
+    }
+    metadata_path = os.path.join(out_dir, "metadata.json")
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"  Wrote metadata to {metadata_path}")
+
+
 def load_split(data_dir: str):
     """Load a preprocessed split from disk. Used by train_v*.py scripts."""
     split_path = os.path.join(data_dir, "split.json")
@@ -506,6 +547,7 @@ def main():
     print("\n[4/4] Writing outputs ...")
     write_txt(dataset, txt_path)
     write_split(dataset, out_dir)
+    write_metadata(args.dataset, dataset, len(filtered), ds["kcore"], out_dir)
 
     # write item titles if available (for human-readable predictions)
     titles_writer = ds.get("titles_writer")

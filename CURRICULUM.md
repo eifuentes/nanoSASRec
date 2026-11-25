@@ -419,6 +419,17 @@ Three things change from SASRec's Transformer block:
 
 **The architecture swap is not a clear win at this scale.** v8 HSTU (0.3236) beats the v5 8-block SASRec baseline (0.3196), but lands below v6 ReZero (0.3287) and v7 relative bias (0.3380). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
 
+**HSTU starts fast, then flattens.** The validation curves show a pattern the final numbers hide. At epoch 10, v8 is already ahead of v7 (validation HR@10 0.3291 against 0.3281), and v9 leads every model in the repo (0.3356). By epoch 50 the order has reversed. Over their last 10 epochs, v8 and v10 gained only about 0.2 points of validation HR@10, while v5, v6 and v7 gained 0.34 to 0.58 points and were still climbing.
+
+| Validation HR@10 at epoch (seed 42) | 10 | 20 | 30 | 40 | 50 |
+|-------------------------------------|----|----|----|----|----|
+| v5 blocks=8 (SASRec) | 0.2974 | 0.3242 | 0.3347 | 0.3447 | 0.3504 |
+| v7 (+ relative bias) | 0.3281 | 0.3506 | 0.3606 | 0.3684 | 0.3729 |
+| v8 (HSTU) | 0.3291 | 0.3409 | 0.3495 | 0.3561 | 0.3581 |
+| v9 (+ φ1) | 0.3356 | 0.3510 | 0.3608 | 0.3674 | 0.3690 |
+
+So 50 epochs undertrains the SASRec line more than the HSTU line. A longer budget would likely widen v7's lead over our HSTU versions, not shrink it.
+
 **How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. v8's validation curve had nearly flattened by epoch 50 (+0.2 points over its last 10 epochs), so more epochs alone are unlikely to close that gap. One known difference is long-sequence handling, which the reference training uses and nanoSASRec does not yet have (see Stochastic Length training in the README roadmap). A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and lands within a point of the published state of the art, without changing the attention mechanism.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation

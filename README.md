@@ -103,8 +103,8 @@ Published results on the full 26,744-item ML-20M catalog:
 | Source | Method | HR@10 | NDCG@10 |
 |--------|--------|-------|---------|
 | Zhai et al. (2024) | SASRec | 0.2889 | 0.1621 |
-| Zhai et al. (2024) | HSTU | 0.3273 | 0.1895 |
-| Zhai et al. (2024) | HSTU-large | 0.3556 | 0.2098 |
+| Zhai et al. (2024) | HSTU (4 blocks) | 0.3273 | 0.1895 |
+| Zhai et al. (2024) | HSTU-large (16 blocks) | 0.3556 | 0.2098 |
 | Tikhonovich et al. (2025) | eSASRec (4 blocks) | 0.3289 | 0.1966 |
 | Tikhonovich et al. (2025) | eSASRec (8 blocks) | 0.3457 | 0.2107 |
 | Tikhonovich et al. (2025) | HSTU, recomputed (8 blocks) | 0.3464 | 0.2040 |

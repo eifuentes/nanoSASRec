@@ -16,7 +16,7 @@ trillion-parameter scale.
 
 ## The SASRec vs. BERT4Rec debate (2019-2022)
 
-- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Established the preprocessing and evaluation standards this repo follows.
+- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Its ML-1M preprocessing (5-core filtering, leave-one-out) is the one this repo uses for ML-1M.
 
 ## The loss function is the real problem (2023-2025)
 
@@ -38,21 +38,22 @@ underperformance is caused by its loss function, not its architecture.
 
 ## Depth scaling and residual stabilization (2020-2023)
 
-- **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks outperform 16 blocks without it.
+- **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks match 16 blocks without it.
 - **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers.
 - **Peng et al., TKDD 2023** (2311.07742): "Modeling Sequences as Star Graphs to Address Over-smoothing." Cosine similarity among sequence elements rises from 0.5 to 0.8 from block 1 to block 6. Formalizes why deeper SASRec doesn't improve.
 
 ## Evaluation methodology
 
 - **Krichene & Rendle, KDD 2020**: "On Sampled Metrics for Item Recommendation." Sampled metrics (100 negatives) are biased and can reverse model rankings. Use full-catalog evaluation when feasible.
-- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Established dataset preprocessing standards used throughout this repo.
+- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Source of this repo's ML-1M preprocessing.
+- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** Re-benchmarks Transformer recommenders, including HSTU and FuXi-α, on one shared split and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M protocol and published comparisons follow this paper. eSASRec itself is SASRec with sampled softmax and a gated Transformer layer (LiGR).
 - **Rendle, Zhang & Koren, 2019** (1905.01395): "On the Difficulty of Evaluating Baselines." Carefully tuned vanilla MF beats most newly proposed methods. The reason this repo insists on getting implementation details right before claiming improvements.
 
 ## The bridge to HSTU (2022-2024)
 
 - **Li, Wang & McAuley, WSDM 2020** (wsdm20b): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute timestamps and time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
 - **Pancha, Zhai et al., KDD 2022** (2205.04507): **PinnerFormer.** Industrial-scale SASRec at Pinterest. Introduces "Dense All Action" loss (predict all future actions, not just next item). Pre-LN residuals, sampled softmax. Co-authored by Jiaqi Zhai, the direct architectural stepping stone to HSTU.
-- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." The Rosetta Stone. Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling.
+- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." The Rosetta Stone. Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling. Our v5 sweep does not see the collapse: with v4's initialization and sampled softmax, plain SASRec keeps improving up to 16 blocks, with diminishing returns.
 - **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. M-FALCON inference. Trillion-parameter scale with power-law scaling. The north star.
 
 ## HSTU extensions and related architectures

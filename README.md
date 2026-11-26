@@ -102,25 +102,30 @@ Published results on the full 26,744-item ML-20M catalog:
 
 eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU row is HSTU's original code re-run on the same order-preserving split that `data.py` produces.
 
-The eSASRec rows are the closest comparison because they use the same split and the same evaluation: full-catalog ranking with the user's earlier items masked. After 50 epochs, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU at 8 blocks. eSASRec trains for up to 100 epochs, though, and [Training longer](#training-longer) shows v7 passes both when given the same budget. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8 at 50 epochs. One known difference is that nanoSASRec does not yet handle long sequences the way the reference training does (see Stochastic Length training in the [Roadmap](#roadmap)). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+The eSASRec rows are the closest comparison because they use the same split and the same evaluation: full-catalog ranking with the user's earlier items masked. After 50 epochs, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU at 8 blocks. eSASRec trains for up to 100 epochs, though, and [Training longer](#training-longer) shows v7 draws level with both when given the same budget. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8 at 50 epochs, and 0.4 and 1.5 at 100. One known difference is that nanoSASRec does not yet handle long sequences the way the reference training does (see Stochastic Length training in the [Roadmap](#roadmap)). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
 
 ### Training longer
 
-The 50-epoch table compares versions under one fixed budget. It is not where training stops: every version is still improving at epoch 50. Re-running four of them for 100 epochs (seed 42):
+The 50-epoch table compares versions under one fixed budget. It is not where training stops: every version is still improving at epoch 50. Re-running six of them for 100 epochs (seed 42; v7 is the mean ± std over seeds 42-44):
 
 | Version | HR@10, 50 epochs | HR@10, 100 epochs | NDCG@10, 100 epochs |
 |---------|------------------|-------------------|---------------------|
 | v5 (8 blocks) | 0.3196 | 0.3297 | 0.1976 |
-| **v7 (8 blocks)** | 0.3381 | **0.3483** | **0.2102** |
+| **v7 (8 blocks)** | 0.3380 ± 0.0009 | **0.3473 ± 0.0013** | **0.2098 ± 0.0005** |
 | v7 with eSASRec's widths | | 0.3476 | 0.2091 |
 | v8 (8 blocks) | 0.3236 | 0.3313 | 0.1976 |
+| v9 (8 blocks) | 0.3344 | 0.3426 | 0.2061 |
+| v10 (8 blocks) | 0.3269 | 0.3336 | 0.1992 |
 
-- Every version gains 0.8 to 1.0 points of HR@10 from the extra 50 epochs.
-- At 100 epochs, v7 is above eSASRec (0.3457) and the recomputed HSTU (0.3464). The margin is 0.2 to 0.3 points, two to three times the seed-to-seed spread.
+v9's 50-epoch number here is seed 42 alone, so it differs slightly from the three-seed mean in the table above.
+
+- Every version gains 0.7 to 1.0 points of HR@10 from the extra 50 epochs. The SASRec versions (v5, v7) gain about 1 point, the HSTU versions (v8 to v10) 0.7 to 0.8.
+- At 100 epochs, v7 matches eSASRec (0.3457 HR@10, 0.2107 NDCG@10) and the recomputed HSTU (0.3464, 0.2040). Its HR@10 is 0.1 to 0.2 points higher, about one standard deviation across seeds, so treat it as a tie, not a win.
 - eSASRec's widths (4× feed-forward, 16 heads, 256 negatives) don't help v7. They add 30% more parameters and take 1.8× longer per epoch for the same accuracy.
+- The order doesn't change: v7 > v9 > v10 > v8 > v5. v9, the best HSTU version, closes to 0.4 points behind the recomputed HSTU; v8 is still 1.5 behind.
 - v8's lead over v5 at the same depth shrinks from 0.4 to under 0.2 points. HSTU learns faster early on, but SASRec catches up.
 
-Each model is scored on test once, after its last epoch. Both v7 runs had their best validation HR@10 at the last epoch, so picking the checkpoint by validation would not change their numbers. v5 and v8 peaked on validation at epoch 90, within 0.2 points of their last epoch.
+Each model is scored on test once, after its last epoch. For most runs the best validation HR@10 also came at the last epoch, so picking the checkpoint by validation would not change their numbers. The exceptions are v7 seed 44 (best at epoch 95) and v5 and v8 (best at epoch 90), each within 0.3 points of their last epoch.
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

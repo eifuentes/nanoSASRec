@@ -449,17 +449,19 @@ Three things change from SASRec's Transformer block:
 | v8 (HSTU) | 0.3291 | 0.3409 | 0.3495 | 0.3561 | 0.3581 |
 | v9 (+ φ1) | 0.3356 | 0.3510 | 0.3608 | 0.3674 | 0.3690 |
 
-So 50 epochs undertrains the SASRec line more than the HSTU line. We checked by re-running v5 (8 blocks), v7 and v8 for 100 epochs (seed 42). All three gained 0.8 to 1.0 points of test HR@10, and v7's lead over v8 grew from 1.4 to 1.7 points:
+So 50 epochs undertrains the SASRec line more than the HSTU line. We checked by re-running v5 (8 blocks), v7, v8, v9 and v10 for 100 epochs (seed 42, plus seeds 43 and 44 for v7). The SASRec versions gained about 1 point of test HR@10 and the HSTU versions 0.7 to 0.8, so v7's lead over v8 grew from 1.4 to 1.6 points:
 
-| Test at 100 epochs (seed 42) | HR@10 | NDCG@10 | HR@10 at 50 epochs |
+| Test at 100 epochs (seed 42; v7 is mean ± std over seeds 42-44) | HR@10 | NDCG@10 | HR@10 at 50 epochs |
 |------------------------------|-------|---------|--------------------|
 | v5 blocks=8 (SASRec) | 0.3297 | 0.1976 | 0.3196 |
-| v7 (+ relative bias) | 0.3483 | 0.2102 | 0.3381 |
+| v7 (+ relative bias) | 0.3473 ± 0.0013 | 0.2098 ± 0.0005 | 0.3380 ± 0.0009 |
 | v8 (HSTU) | 0.3313 | 0.1976 | 0.3236 |
+| v9 (+ φ1) | 0.3426 | 0.2061 | 0.3344 |
+| v10 (+ temp + L2 + collision) | 0.3336 | 0.1992 | 0.3269 |
 
-v8 still learns faster early on, but v5 catches up: v8's lead over the same-depth SASRec shrinks from 0.4 points to under 0.2.
+v8 still learns faster early on, but v5 catches up: v8's lead over the same-depth SASRec shrinks from 0.4 points to under 0.2. The order of the versions is the same at both budgets, and v9 keeps its 1.1-point lead over v8.
 
-**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3483, above both eSASRec (0.3457) and the recomputed HSTU (0.3464). Giving v7 eSASRec's widths (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs do not rescue our HSTU, though: v8 at 100 epochs (0.3313) is still 1.5 points behind the recomputed HSTU. One known difference is long-sequence handling, which the reference training uses and nanoSASRec does not yet have (see Stochastic Length training in the README roadmap). A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches the best published results on this split (eSASRec and the recomputed HSTU) without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model and was evaluated on Zhai et al.'s reordered split.
+**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3473 ± 0.0013 over three seeds, level with eSASRec (0.3457) and the recomputed HSTU (0.3464): 0.1 to 0.2 points higher, about one standard deviation. Giving v7 eSASRec's widths (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs narrow the gap for our HSTU but don't close it: at 100 epochs v9 (0.3426) is 0.4 points behind the recomputed HSTU, and v8 (0.3313) is 1.5 behind. One known difference is long-sequence handling, which the reference training uses and nanoSASRec does not yet have (see Stochastic Length training in the README roadmap). A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches the best published results on this split (eSASRec and the recomputed HSTU) without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model and was evaluated on Zhai et al.'s reordered split.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -511,7 +513,7 @@ These are standard techniques in production recommendation systems and appear in
 | v9 (raw dot products) | 0.3354 ± 0.0009 | 0.2008 ± <0.0001 |
 | v10 temp=0.05 | 0.3269 | 0.1949 |
 
-**These techniques didn't help at our scale.** v10 underperformed v9 by 0.9 points of HR@10, as it did on the v0.2.1 catalog across every temperature tried there. The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
+**These techniques didn't help at our scale.** v10 underperformed v9 by 0.9 points of HR@10, as it did on the v0.2.1 catalog across every temperature tried there. Training longer doesn't change that: at 100 epochs v10 is still 0.9 points behind v9 (0.3336 against 0.3426, seed 42). The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
 
 Random negatives are "easy" because they're mostly items from completely different categories. The model quickly learns to reject them and doesn't need temperature sharpening to separate them. In-batch negatives are "hard" because they're items other users actually interacted with, forcing finer distinctions. That's where temperature sharpening and cosine similarity pay off.
 

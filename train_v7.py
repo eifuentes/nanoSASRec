@@ -17,7 +17,7 @@ coarse for distant items. 32 buckets each, shared across all attention blocks.
 
 References:
     - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture
-    - Li et al., WSDM 2020 (arxiv: 2005.10602) - TiSASRec, time intervals in self-attention
+    - Li, Wang & McAuley, WSDM 2020 (doi: 10.1145/3336191.3371786) - TiSASRec, time intervals in self-attention
     - Raffel et al., 2020 (arxiv: 1910.10683) - T5 relative position bias
     - Zhai et al., ICML 2024 (arxiv: 2402.17152) - HSTU relative attention bias (position + time)
     - Guo et al., 2024 (arxiv: 2412.00714) - Scaling New Frontiers, temporal > positional (Table 3)

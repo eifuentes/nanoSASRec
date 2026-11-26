@@ -2,21 +2,21 @@
 train_v11.py - HSTU with Dense All Action generative loss
 
 Changes the training signal: instead of each position predicting only the
-next item, every position predicts ALL future items in the sequence. This
-gives denser supervision per sequence without changing the model.
+next item, every position predicts the next K items (--horizon, default 10).
+This gives denser supervision per sequence without changing the model.
 
-Inspired by PinnerFormer (Pancha, Zhai et al., KDD 2022) and discussed
-in the HSTU paper (Zhai et al., ICML 2024). Same leading author.
+Inspired by PinnerFormer (Pancha et al., KDD 2022) and discussed
+in the HSTU paper (Zhai et al., ICML 2024).
 
 The model architecture and evaluation are unchanged. Dense All Action
 affects training only: the model learns richer representations by
-predicting all future items, but at inference we still use the last
+predicting the next K items, but at inference we still use the last
 position to predict the next item.
 
 Run: `uv run python train_v11.py --device cuda --horizon 10`
 
 References:
-    - Pancha, Zhai et al., KDD 2022 (arxiv: 2205.04507) - PinnerFormer, Dense All Action loss
+    - Pancha et al., KDD 2022 (arxiv: 2205.04507) - PinnerFormer, Dense All Action loss
     - Zhai et al., ICML 2024 (arxiv: 2402.17152) - HSTU architecture
     - Klenitskiy & Vasilev, RecSys 2023 (arxiv: 2309.07602) - Sampled Softmax loss
 """
@@ -169,7 +169,7 @@ def main():
 
             # Dense All Action loss (PinnerFormer, HSTU)
             # Instead of each position predicting only its next item,
-            # every position predicts ALL future items in the sequence.
+            # every position predicts the next K items (--horizon).
             #
             # v1-v10 loss (1 target per position):
             #   position 3 (saw A,B,C) -> predicts D

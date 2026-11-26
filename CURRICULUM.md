@@ -12,11 +12,11 @@ Here are known differences from the original SASRec implementation.
 - **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Zhai et al. (2024)) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
 - **Reversed positional embeddings** (Huang 2025, arxiv: 2504.09596). The original uses forward indexing; v4+ counts backward from the prediction position so the model learns "how far back" rather than "what absolute slot."
 
-These are intentional refinements, not bugs. v1-v3 use PyTorch default initialization and forward positions to match the original paper; v4+ applies these improvements.
+These are intentional refinements, not bugs. v1-v3 keep PyTorch's default initialization and forward positions; v4+ apply these improvements.
 
 ## Reading the Metrics
 
-**Avg loss (Sampled Softmax, or SSM, v2/v4+):** Each training step, the model sees 1 correct item and N random wrong items (256 for ML-1M, 512 for ML-20M) and has to pick the right one. The loss measures how badly it fails at this. If the model has no idea and guesses uniformly across 257 candidates, the probability of guessing right is 1/257 and the loss is -log(1/257) ≈ 5.55 (≈ 6.24 with ML-20M's 513 candidates). As the model learns, it assigns higher probability to the correct item and the loss drops. The `~X% correct` in the training output is just that probability: how often the model's top pick is actually right.
+**Avg loss (Sampled Softmax, or SSM, v2/v4+):** Each training step, the model sees 1 correct item and N random wrong items (256 for ML-1M, 512 for ML-20M) and has to pick the right one. The loss measures how badly it fails at this. If the model has no idea and guesses uniformly across 257 candidates, the probability of guessing right is 1/257 and the loss is -log(1/257) ≈ 5.55 (≈ 6.24 with ML-20M's 513 candidates). As the model learns, it assigns higher probability to the correct item and the loss drops. The `~X% correct` in the training output is exp(-loss): roughly the probability the model gives the correct item among the 257 (or 513) candidates.
 
 v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it mirrors the equation directly. That version can overflow for very large logits, so v8-v10 switch to the stable `logsumexp` form of the same objective. The training objective does not change, only the numerical implementation does.
 
@@ -27,15 +27,15 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 | 2.0 | 14% | Learning real patterns |
 | 1.0 | 37% | Strong preferences |
 
-**Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives you 50/50, which maps to a loss of -log(0.5) ≈ 0.69. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things. v3 averages the loss over the positive and its 256 negatives, so its values are much smaller (around 0.006).
+**Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives 50/50 on each question, a loss of -log(0.5) ≈ 0.69. v1 adds the positive's and the negative's loss, so its chance level is 2 × 0.69 ≈ 1.39. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things. v3 averages the loss over the positive and its 256 negatives, so its chance level is about 0.69 and its values end much smaller (around 0.006).
 
-**Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test then use the same yardstick. On ML-20M, validation HR@10 still runs about 3 points above test, because the last item is consistently harder to predict than the second-to-last. The gap is steady across versions, so validation is a trustworthy signal for picking models and checkpoints.
+**Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test then use the same yardstick. On ML-20M, validation HR@10 still runs 3 to 3.5 points above test, probably because the last item is harder to predict (it is one step further from the training data). The gap is steady across versions, so validation is a trustworthy signal for picking models and checkpoints.
 
 **Test metrics (final benchmark):** HR@10 and NDCG@10 on the last item of each user, given everything before it, measured against the full item catalog. The model ranks the ground truth against every item in the dataset, except items already in the user's history: 3,416 items for ML-1M and 26,744 for ML-20M. This is the number you compare against published papers. ML-20M uses the same unfiltered catalog as Zhai et al. (2024) and eSASRec (Tikhonovich et al., 2025). v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.
 
 **HR@10 (Hit Rate):** Did the ground truth item land in the top 10? Yes = 1, no = 0, averaged across all users.
 
-**NDCG@10 (Normalized Discounted Cumulative Gain):** Not just "did it make the top 10?" but "how high?" The score uses a log discount: 1/log2(rank+1). Rank 1 gets full credit (1.0), rank 2 gets 0.63, rank 5 gets 0.39, rank 10 gets 0.30. The log means there's a big difference between rank 1 and rank 3, but a small difference between rank 8 and rank 10. This matches real user behavior: people click the first few results, rarely scroll to position 10. When you see an average NDCG@10 of 0.20 across 138K users, with HR@10 around 0.34, it means the ground truth item lands around rank 2-3 on average when it does appear in the top 10. NDCG is the metric that matters most for recommendations because getting the right item to the very top is what drives clicks.
+**NDCG@10 (Normalized Discounted Cumulative Gain):** Not just "did it make the top 10?" but "how high?" The score uses a log discount: 1/log2(rank+1). Rank 1 gets full credit (1.0), rank 2 gets 0.63, rank 5 gets 0.39, rank 10 gets 0.29. The log means there's a big difference between rank 1 and rank 3, but a small difference between rank 8 and rank 10. This matches real user behavior: people click the first few results, rarely scroll to position 10. When you see an average NDCG@10 of 0.20 across 138K users, with HR@10 around 0.34, it means the ground truth item lands around rank 2-3 on average when it does appear in the top 10. NDCG rewards getting the right item to the very top, which is where most clicks happen.
 
 ## v1: Vanilla SASRec + BCE Loss
 
@@ -104,9 +104,9 @@ Estimate batches per epoch: 47
 
 **What we learned about the architecture:** Self-attention lets each position in a user's history decide which past items are most relevant for predicting what comes next. The shifted-sequence trick gives us one training signal per position, not just one per user. Residual connections and layer normalization keep gradients flowing through stacked blocks.
 
-**What the metrics mean:** HR@10 = 0.77 means for 77% of users, the model ranked the actual next item within the top 10 out of 101 candidates. NDCG@10 = 0.50 means that when it did rank correctly, the item tended to land around position 2-3 rather than position 10.
+**What the metrics mean:** Validation HR@10 = 0.77 means for 77% of users, the model ranked the actual next item within the top 10 out of 101 candidates. NDCG@10 = 0.50 means that when it did rank correctly, the item tended to land around position 2-3 rather than position 10.
 
-**What's wrong - the overconfidence problem:** The loss dropped to 0.60, which sounds like "almost solved." But map that through the BCE loss curve: a loss of 0.60 means the model assigns P ≈ 0.95 to positive items on average. Average P(pos) across all positions is ~0.64 for v1, which looks reasonable. But the overconfidence lives in the tail: at the final position where predictions matter most, the top 25 items all score above 0.99. The average hides the problem that the ranking metrics expose. When everything is "99% likely," the model can't distinguish between rank 1 and rank 25 - they all look the same. This is overconfidence.
+**What's wrong - the overconfidence problem:** BCE with one negative only asks "is this item better than one random item?" That is an easy question, so the model learns to say yes freely. Avg P(pos) ends at 0.64: on average the model is 64% sure the true item is the next one, even though it is one of 3,416 candidates. Nothing in the loss asks it to compare candidates with each other, so it can score many items about as high as the true one. That competition is what v2 adds.
 
 **What 0.99 actually means:** The model is saying "I am 99% sure this is the right next item" for dozens of items simultaneously. That's mathematically incoherent - they can't all be 99% likely. In a catalog of 3,416 items, the true probability of any single item being next is roughly 1/3,416 ≈ 0.03%. A well-calibrated model should predict something close to that for most items and maybe 5-20% for the top few. Predicting 0.99 is overconfident by a factor of ~3,000×.
 
@@ -181,9 +181,9 @@ Estimate batches per epoch: 47
 
 **What sampled softmax does differently:** Instead of asking "is this item good? yes/no" independently for each candidate (BCE), sampled softmax asks "which of these 257 items is the correct next one?" The positive item must compete directly against 256 negatives in a single softmax distribution. Probabilities must sum to 1, so the model can't give everything a score of 0.99 - pushing one item up forces others down.
 
-**Why the loss doesn't go to zero:** v1's BCE loss dropped from 5.3 to 0.60 and was still falling. v2's sampled softmax loss dropped from 18.3 to 3.04 and plateaued. This is correct and expected. A random model that assigns equal probability to all 257 candidates would have loss -log(1/257) ≈ 5.55. The model got down to 3.04, well below random but nowhere near zero - unlike v1's BCE which kept pushing toward zero.
+**Why the loss doesn't go to zero:** v1's BCE loss dropped from 5.3 to 0.60 and was still falling. v2's sampled softmax loss dropped from 18.3 to 3.04 and was still falling slowly. This is correct and expected. A random model that assigns equal probability to all 257 candidates would have loss -log(1/257) ≈ 5.55. The model got down to 3.04, well below random but nowhere near zero - unlike v1's BCE which kept pushing toward zero.
 
-**Why NDCG improved more than HR:** HR@10 asks a binary question - did the ground truth land in the top 10? v1 already got this right ~77% of the time. The bigger problem was *where* in the top 10 it landed. v1's overconfident scores meant the top 10 items had nearly identical scores, so the ground truth's position within the top 10 was essentially random. v2's better-separated scores push the ground truth toward rank 1-3 when it does appear, which is exactly what NDCG measures. The +0.072 NDCG gain versus +0.026 HR gain is the signature of reduced overconfidence.
+**Why NDCG improved more than HR:** HR@10 asks a binary question - did the ground truth land in the top 10? v1 already got this right ~77% of the time. The bigger problem was *where* in the top 10 it landed. v1 is never trained to separate candidates from each other, so the order within its top 10 is loose. v2's candidates compete for probability, which pushes the ground truth toward rank 1-3 when it does appear, and that is exactly what NDCG measures. The +0.072 NDCG gain versus +0.026 HR gain is consistent with better-separated scores.
 
 **Why shared negatives work:** Each user's 256 negatives are reused across all 199 positions in their sequence. This works because an unseen item is unseen at every position - there's no position-specific reason to sample different negatives. v2 runs in comparable time to v1 (~6-7 min) despite scoring 256× more candidates.
 
@@ -275,7 +275,9 @@ Estimate batches per epoch: 47
 | gBCE (`t = 0.75`, β ≈ 0.31) | 200 | 0.6944 | 0.4485 | 0.6704 | 0.4285 |
 | **v3: gBCE (`t = 0.75`)** | **400** | **0.7790** | **0.5498** | **0.7596** | **0.5318** |
 
-The positive is one term out of 257, so the negatives dominate the early gradient. With either BCE variant, validation HR@10 sits near 0.44 for about 80 epochs, which is roughly what recommending popular items gets you, before the model starts using the sequence. (v4's initialization shortens plateaus like this one.) Shrinking the positive term further with β < 1 slows learning again, so at 200 epochs gBCE is behind plain BCE. Given 400 epochs, gBCE reaches sampled softmax on HR@10 (0.7596 against 0.7672) but stays behind on NDCG@10 (0.5318 against 0.5471). The prediction demo shows the difference: at 200 epochs the top 10 is popular 1990s films; at 400 it is Disney animation, with the ground truth at rank 10.
+The 200-epoch rows are separate runs, so they differ slightly from epoch 200 of the 400-epoch output above.
+
+The positive is one term out of 257, so the negatives dominate the early gradient. With either BCE variant, validation HR@10 sits near 0.44 for about 80 epochs, about what ranking by popularity scores (0.43), before the model starts using the sequence. (v4's initialization shortens plateaus like this one.) Shrinking the positive term further with β < 1 slows learning again, so at 200 epochs gBCE is behind plain BCE. Given 400 epochs, gBCE reaches sampled softmax on HR@10 (0.7596 against 0.7672) but stays behind on NDCG@10 (0.5318 against 0.5471). The prediction demo shows the difference: at 200 epochs the top 10 is popular 1990s films; at 400 it is Disney animation, with the ground truth at rank 10.
 
 **`t` and the number of negatives work together.** α is the fraction of negatives sampled, so the size of the correction depends on both knobs. With all 3,415 negatives, α = 1 and β = 1 for any `t`: there is nothing to correct. With 256 negatives and `t = 0.75`, β ≈ 0.31. With a single negative, β ≈ 0.25. `num_negatives` sets how big the gap is; `t` sets how much of it to close.
 
@@ -283,7 +285,7 @@ The positive is one term out of 257, so the negatives dominate the early gradien
 
 **Why NDCG trails sampled softmax:** gBCE scores each item independently. Sampled softmax makes the candidates compete for probability mass, which pushes the ground truth sharply above its neighbours and helps NDCG most. If you only care about ranking, sampled softmax is the better and faster choice. That is why v4+ use it.
 
-**What we learned about the loss function progression:** After three versions with identical architecture, the conclusion is clear: SASRec's performance issues were never about the architecture. v1's BCE overconfidence, v2's softmax fix, v3's calibration approach are all statements about how the training signal is shaped, not about how attention works. The architecture was fine from the start. This matches the central finding of the 2023 research: fix the loss, fix the model.
+**What we learned about the loss function progression:** v1-v3 hold the architecture fixed and change only the loss, and on ML-1M the loss alone moves the metrics this much. v1's overconfidence, v2's softmax fix and v3's calibration are all about how the training signal is shaped, not about how attention works. This matches the 2023 finding that the loss, not attention, held SASRec back. Later versions show the architecture still has room: ReZero and relative bias each add about 3% on ML-20M.
 
 ## v4: Implementation Refinements
 
@@ -295,7 +297,7 @@ The positive is one term out of 257, so the negatives dominate the early gradien
 
 **What changed:** Same sampled softmax loss as v2. Five implementation refinements, model decomposed into shared `sasrec/` package.
 
-**Results on ML-1M (200 epochs, dim=50, blocks=2, heads=1, seed=42):**
+**Results on ML-1M (200 epochs, dim=50, blocks=2, heads=1, seed=42, `--device mps`; a CUDA run lands within 0.5 points):**
 
 | Metric | v2 (SSM) | v4 (SSM + refinements) |
 |--------|----------|------------------------|
@@ -310,17 +312,17 @@ The positive is one term out of 257, so the negatives dominate the early gradien
 
 Look at the gap between the two kinds of validation. Ranked against 101 items, v4's validation HR was 0.85. Ranked against all 3,416 items, it is 0.32, close to the test HR of 0.30. The same v4 recipe, measured two ways, gives wildly different numbers. This is why full-catalog eval matters: sampled eval makes everything look good. It is also why v4+ validate on the full catalog: validation should predict test.
 
-For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog eval and got HR@10 of 0.2852 and NDCG@10 of 0.1603. Our v4 beats that by +5.8% HR despite using the same architecture. The difference is entirely the refinements below.
+For reference, Zhai et al. (2024) report SASRec on ML-1M at HR@10 0.2853 and NDCG@10 0.1603 with full-catalog eval. Our v4 is higher (0.3017), but the numbers aren't directly comparable: our ML-1M drops items with fewer than 5 ratings (3,416 items), and theirs keeps the full catalog (3,706 items).
 
 **What the refinements do and why they matter:**
 
-- **Truncated normal weight init** (`std=1/sqrt(d)`) was the biggest contributor. PyTorch initializes embeddings from N(0,1) by default, meaning each element has variance 1. When you dot product two dim=50 vectors where each element has variance 1, the result has variance equal to the sum: 50. That means initial attention scores land around ±7 (sqrt(50)), which completely saturates softmax before the model has learned anything. Truncated normal with `std=1/sqrt(d)` keeps initial dot products near zero so softmax starts in its useful range. v2 started at loss 18.3; v4 started at 5.4 and reached v2's final HR by epoch 40.
+- **Truncated normal weight init** (`std=1/sqrt(d)`) was the biggest contributor. PyTorch initializes embeddings from N(0,1) by default, meaning each element has variance 1. When you dot product two dim=50 vectors where each element has variance 1, the result has variance equal to the sum: 50. That means initial attention scores land around ±7 (sqrt(50)), which completely saturates softmax before the model has learned anything. Truncated normal with `std=1/sqrt(d)` keeps initial dot products near zero so softmax starts in its useful range. v2 started at loss 18.3; v4 started at 5.4 and reached v2's final HR by epoch 40 (in v0.2.1, which still used sampled validation).
 - **Reversed positional embeddings** give the prediction position a consistent embedding (always index 0) instead of varying by sequence length. The model learns "how far back" rather than "what absolute slot." (Huang 2025, arxiv: 2504.09596)
-- **Attention weight dropout** was missing in v1-v3. The original Transformer paper applies dropout on attention weights after softmax, not just on the output. One line, standard practice.
+- **Attention weight dropout** was missing in v1-v3. Standard Transformer implementations (e.g. tensor2tensor) apply dropout to the attention weights after softmax, not just to the output. One line, standard practice.
 - **Registered causal mask buffer** avoids recreating the attention mask every forward pass.
 - **Configurable FFN** activation and hidden dimension for experimentation.
 
-**The lesson:** v1-v3 proved the loss function matters. v4 proves implementation details matter just as much: +7% HR and +12% NDCG from changes that didn't touch the loss or model capacity. D'Ercoli et al. 2025 documented 2-5% swings from these details individually; they compound.
+**The lesson:** v1-v3 proved the loss function matters. v4 proves implementation details matter just as much: +7% HR and +12% NDCG on sampled validation from changes that didn't touch the loss or model capacity. D'Ercoli et al. 2025 documented 2-5% swings from these details individually; they compound.
 
 ## v5: Scaling to ML-20M
 
@@ -332,7 +334,7 @@ For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog 
 
 > **Note on v5-v11 results:** these numbers use the full 26,744-item ML-20M catalog, the same catalog as Zhai et al. (2024) and eSASRec (Tikhonovich et al., 2025). v0.2.1, the previous release, filtered ML-20M to items with at least 5 ratings (18,345 items). Its numbers were 0.4 to 1.0 points of HR@10 higher, because the smaller catalog makes ranking easier, but the 8-block versions ranked in the same order (v7 > v9 > v6 > v10 > v8 > v5). v7 and v9 report the mean ± standard deviation over seeds 42, 43 and 44. The seed-to-seed spread, about 0.1 points of HR@10, is well below the gaps between versions.
 
-**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 27K items), and from dim=50 to dim=256 with 8 attention heads. This matches the ML-20M benchmark configuration and item catalog from Guo et al. (2024) and Zhai et al. (2024).
+**What changed:** No new code. v5 runs `train_v4.py` at different depths (2, 4, 8, 16 attention blocks) on a much larger dataset. Two things scale up at once: we jump from ML-1M (6K users, 3.4K items) to ML-20M (138K users, 27K items), and from dim=50 to dim=256 with 8 attention heads. The catalog, embedding size (256), sequence length (200) and batch size (128) match Zhai et al.'s (2024) ML-20M setup.
 
 **Results on ML-20M (50 epochs, dim=256, heads=8, batch=128, seed=42, full-catalog eval, one A10 GPU):**
 
@@ -357,7 +359,7 @@ For reference, Zhai et al. (2024) benchmarked SASRec on ML-1M with full-catalog 
 
 **The problem with stacking blocks.** Each attention block transforms the input and adds its result back to a residual stream that flows through the whole model. With 2 blocks, this works fine. With 8, you have 8 randomly initialized transformations all adding noise to the stream before any of them have learned anything useful. The original item embeddings get buried. Training eventually sorts this out, but early epochs are wasted fighting through noise.
 
-**ReZero's fix is almost embarrassingly simple.** Multiply each block's output by a learnable scalar, initialized to zero. At the start of training, every block is zeroed out, so the residual stream is just clean item embeddings flowing through. As training progresses, each scalar grows from zero, gradually turning on blocks as they learn something worth adding. The model decides for itself how much each block should contribute and when. Total cost: 16 extra parameters for 8 blocks.
+**ReZero's fix is simple.** Scale each sublayer's output (attention and feed-forward) by its own learnable scalar, initialized to zero. At the start of training, every block is zeroed out, so the residual stream is just clean item embeddings flowing through. As training progresses, each scalar grows from zero, gradually turning on blocks as they learn something worth adding. The model decides for itself how much each block should contribute and when. Total cost: 16 extra parameters for 8 blocks.
 
 **Results on ML-20M (dim=256, heads=8, 50 epochs, seed=42, full-catalog eval):**
 
@@ -393,7 +395,7 @@ item_5  [    4       3       2       1       0   ]
 
 Negative values mean "this item is in the future." Causal masking zeros those out since items can't attend forward. What remains are the positive distances: "this item was 1 step back, that one was 3 steps back."
 
-We do the same with timestamps. If item_2 happened Monday and item_5 happened the following Thursday, the temporal distance is 3 days. Raw distances can be huge (months apart), so we compress them into 32 log-spaced buckets. Buckets 0-15 cover small distances with fine resolution (0, 1, 2, ... 15 apart). Buckets 16-31 cover larger distances logarithmically (16, 24, 36, ... 200+). Each bucket gets a learnable bias per attention head.
+We do the same with timestamps. If item_2 happened Monday and item_5 that Thursday, the gap is 3 days. Raw gaps can be huge, so we compress them into 32 buckets. For positions, buckets 0-15 are exact (0, 1, ... 15 steps back) and buckets 16-31 grow by about 17% each (16, 19, 22, ... up to 198). For time, which is in seconds, buckets 0-15 are 0-15 seconds and the rest are log-spaced up to 30 days; anything older shares the last bucket. Each bucket gets a learnable bias per attention head.
 
 **Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v6 is seed 42, v7 is mean ± std over seeds 42-44):**
 
@@ -402,9 +404,9 @@ We do the same with timestamps. If item_2 happened Monday and item_5 happened th
 | v6 (ReZero, absolute pos) | 0.3287 | 0.1973 |
 | v7 (ReZero, relative + temporal) | 0.3380 ± 0.0009 | 0.2025 ± 0.0011 |
 
-**Relative bias is as big a step as ReZero, and makes v7 the best model in the repo.** v7 beats v6 by +2.8% HR and +2.6% NDCG, the same +2.8% HR that ReZero added over plain 8-block SASRec. Unlike absolute position embeddings that encode "what slot is this," relative bias encodes "how far apart are these items" which is what actually matters for sequential patterns. The temporal bias adds real signal too, "items consumed in the same session" gets a different learned weight than "items months apart."
+**Relative bias is as big a step as ReZero, and makes v7 the best model in the repo.** v7 beats v6 by +2.8% HR and +2.6% NDCG, the same +2.8% HR that ReZero added over plain 8-block SASRec. Unlike absolute position embeddings that encode "what slot is this," relative bias encodes "how far apart are these items" which is what actually matters for sequential patterns. The temporal bias lets "items consumed in the same session" get a different learned weight than "items months apart." Guo et al. (2024) find the temporal bias matters more than the positional one; this repo turns both on together (`--rel-bias`) and doesn't separate them.
 
-The compactness that originally seemed like a liability (256 parameters vs 50,944 for absolute) is actually a strength. Relative bias uses 32 shared buckets across all positions, which acts as a strong inductive bias, the model must learn general distance patterns rather than memorizing per-slot behavior. This regularization effect compounds with ReZero's residual stabilization.
+Relative bias is also compact: 512 parameters (256 each for position and time) against 50,944 for absolute position embeddings. With 32 buckets shared across all positions, the model has to learn general distance patterns rather than per-slot behavior, which may act as a regularizer.
 
 ## v8: HSTU
 
@@ -440,7 +442,7 @@ Three things change from SASRec's Transformer block:
 
 **The architecture swap is not a clear win at this scale.** v8 HSTU (0.3236) beats the v5 8-block SASRec baseline (0.3196), but lands below v6 ReZero (0.3287) and v7 relative bias (0.3380). The HSTU block replaces softmax+FFN with SiLU+gating while keeping the same relative bias infrastructure from v7.
 
-**HSTU starts fast, then flattens.** The validation curves show a pattern the final numbers hide. At epoch 10, v8 is already ahead of v7 (validation HR@10 0.3291 against 0.3281), and v9 leads every model in the repo (0.3356). By epoch 50 the order has reversed. Over their last 10 epochs, v8 and v10 gained only about 0.2 points of validation HR@10, while v5 (8 and 16 blocks), v6 and v7 gained 0.34 to 0.58 points and were still climbing. v9 sits in between: 0.16 to 0.64 points depending on the seed.
+**HSTU starts fast, then flattens.** The validation curves show a pattern the final numbers hide. At epoch 10, v8 is already ahead of v7 (validation HR@10 0.3291 against 0.3281), and v9 leads every model in the repo (0.3356). By epoch 50 the order has reversed. Over their last 10 epochs, v8 and v10 gained only about 0.2 points of validation HR@10, while v5 (8 and 16 blocks), v6 and v7 gained 0.34 to 0.58 points and were still climbing. v9 varies by seed: 0.16 to 0.64 points.
 
 | Validation HR@10 at epoch (seed 42) | 10 | 20 | 30 | 40 | 50 |
 |-------------------------------------|----|----|----|----|----|
@@ -461,7 +463,7 @@ So 50 epochs undertrains the SASRec line more than the HSTU line. We checked by 
 
 v8 still learns faster early on, but v5 catches up: v8's lead over the same-depth SASRec shrinks from 0.4 points to under 0.2. The order of the versions is the same at both budgets, and v9 keeps its 1.1-point lead over v8.
 
-**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3473 ± 0.0013 over three seeds, level with eSASRec (0.3457) and the recomputed HSTU (0.3464): 0.1 to 0.2 points higher, about one standard deviation. Giving v7 eSASRec's widths (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs narrow the gap for our HSTU but don't close it: at 100 epochs v9 (0.3426) is 0.4 points behind the recomputed HSTU, and v8 (0.3313) is 1.5 behind. One known difference is long-sequence handling, which the reference training uses and nanoSASRec does not yet have (see Stochastic Length training in the README roadmap). A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches the best published results on this split (eSASRec and the recomputed HSTU) without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model and was evaluated on Zhai et al.'s reordered split.
+**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3473 ± 0.0013 over three seeds, level with eSASRec (0.3457) and the recomputed HSTU (0.3464) and FuXi-α (0.3468): 0.1 to 0.2 points higher, about one standard deviation. On NDCG@10 (0.2098) it is 0.1 points below eSASRec and 0.6 above the recomputed HSTU. Giving v7 eSASRec's settings (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs narrow the gap for our HSTU but don't close it: at 100 epochs v9 (0.3426) is 0.4 points behind the recomputed HSTU, and v8 (0.3313) is 1.5 behind. Our HSTU also differs from the reference code in small ways: the reference divides the SiLU attention by sequence length, and its φ1 is SiLU on the projection of a layer-normed input rather than SwishLayerNorm. We haven't tested which of these matter. A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches eSASRec and the recomputed HSTU and FuXi-α on this split without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model and was evaluated on Zhai et al.'s reordered split.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -502,7 +504,7 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 
 **Temperature scaling.** Divide all logits by a temperature parameter (0.05) before the softmax loss. With cosine similarity in [-1, 1], dividing by 0.05 scales logits to [-20, 20]. This forces the softmax to commit hard to its top picks. A higher temperature (softer distribution) lets the model be vague about rankings.
 
-**Collision masking.** If a randomly sampled negative happens to be the same item as the positive target, mask it to negative infinity before the loss. Without this, the model occasionally gets penalized for scoring a correct item highly. With 512 negatives out of 26,744 items, the positive lands among the negatives about 1.9% of the time per position.
+**Collision masking.** If a sampled negative is the same item as the positive, mask it out so the model isn't penalized for scoring the right item highly. In this repo it never fires: `sample_batch` already skips every item in the user's history, so a negative can't equal a target. It is kept because samplers that don't filter (like in-batch negatives) need it.
 
 These are standard techniques in production recommendation systems and appear in the Zhai et al. (2024) HSTU training setup.
 
@@ -513,11 +515,9 @@ These are standard techniques in production recommendation systems and appear in
 | v9 (raw dot products) | 0.3354 ± 0.0009 | 0.2008 ± <0.0001 |
 | v10 temp=0.05 | 0.3269 | 0.1949 |
 
-**These techniques didn't help at our scale.** v10 underperformed v9 by 0.9 points of HR@10, as it did on the v0.2.1 catalog across every temperature tried there. Training longer doesn't change that: at 100 epochs v10 is still 0.9 points behind v9 (0.3336 against 0.3426, seed 42). The likely reason is the negative sampling strategy: we use random negatives, while Zhai et al. (2024) use in-batch negatives (the positive items from other users in the same batch).
+**These techniques didn't help at our scale.** v10 underperformed v9 by 0.9 points of HR@10, as it did on the v0.2.1 catalog across every temperature tried there. Training longer doesn't change that: at 100 epochs v10 is still 0.9 points behind v9 (0.3336 against 0.3426, seed 42). We don't know why yet. Zhai et al.'s ML-20M configs use the same temperature and L2 norm with random negatives, as we do, so the negative sampler doesn't explain it. Other differences remain: they use 128 negatives (we use 512), and their HSTU divides the SiLU attention by sequence length. We haven't isolated which one matters.
 
-Random negatives are "easy" because they're mostly items from completely different categories. The model quickly learns to reject them and doesn't need temperature sharpening to separate them. In-batch negatives are "hard" because they're items other users actually interacted with, forcing finer distinctions. That's where temperature sharpening and cosine similarity pay off.
-
-L2 normalization also removes a degree of freedom. Without it, the model can use embedding magnitude as a signal (popular items naturally develop larger norms). At production scale with billions of interactions, this prevents unhealthy popularity bias. At ML-20M scale, the popularity signal is useful and removing it hurts.
+One plausible factor: L2 normalization removes a degree of freedom. Without it, the model can use embedding size as a signal, and popular items tend to develop larger norms. On ML-20M that popularity signal may be useful, and removing it may hurt.
 
 **The lesson for practitioners.** These training details are not universally beneficial. They're coupled to the full training pipeline, particularly the negative sampling strategy and catalog scale. Adopting the Zhai et al. (2024) scoring setup without adopting in-batch negative mining won't reproduce the same behavior.
 
@@ -526,11 +526,10 @@ L2 normalization also removes a degree of freedom. Without it, the model can use
 ### Run
 
 `uv run python train_v11.py --device cuda`
-`uv run python train_v11.py --device cuda --horizon 10`
 
 ### Takeaway
 
-**What changed.** Instead of each position predicting only the next item, every position predicts ALL future items in the sequence. Position 3 predicts items 4, 5, 6, ... all the way to the end. This gives roughly 100x more gradient signal per sequence without changing the model.
+**What changed.** Instead of each position predicting only the next item, every position predicts the next K items (`--horizon`, default 10). Position 3 predicts items 4 through 13. That gives about K times more training targets per sequence without changing the model.
 
 The implementation is memory-efficient: precompute `logsumexp` of negative scores once per position, then reuse it for every future target. Total extra memory is one (batch, seq_len, seq_len) tensor.
 

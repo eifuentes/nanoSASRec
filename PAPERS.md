@@ -24,7 +24,7 @@ Two independent groups reached the same conclusion in the same year: SASRec's
 underperformance is caused by its loss function, not its architecture.
 
 - **Klenitskiy & Vasilev, RecSys 2023** (2309.07602): "Turning Dross Into Gold Loss." Shows that SASRec trained with cross-entropy loss (full or sampled softmax) matches or exceeds BERT4Rec while training faster. The paper that proved architecture wasn't the bottleneck.
-- **Petrov & Macdonald, RecSys 2023** (2308.07192): **gSASRec.** Defines overconfidence formally: BCE + negative sampling causes predicted probabilities to approach 1.0. Proposes gBCE loss with calibration parameter β to fix it. **Best Full Paper Award, RecSys 2023.**
+- **Petrov & Macdonald, RecSys 2023** (2308.07192): **gSASRec.** Defines overconfidence formally: BCE + negative sampling causes predicted probabilities to approach 1.0. Proposes gBCE loss, which raises the positive's predicted probability to a power β < 1 set by a calibration parameter t and the negative sampling rate. Our v3 implements it as in the paper's reference code (github.com/asash/gSASRec-pytorch). **Best Full Paper Award, RecSys 2023.**
 - **Petrov & Macdonald, ACM TORS 2025** (doi:10.1145/3699521): Expanded journal version of gSASRec. Full proofs, calibration error drops from 0.966 to 0.01. Recommends t ∈ [0.75, 0.9] with 128-256 negatives.
 - **Jean et al., ACL-IJCNLP 2015** (1412.2007): Original Sampled Softmax for NLP (large vocabulary neural machine translation). The technique gSASRec and the "Dross" paper adapt for recommendation.
 - **Zhai et al., KDD 2023** (2306.04039): "Revisiting Neural Retrieval on Accelerators." Applies sampled softmax to large-scale retrieval. Same first author as HSTU. The Zhai et al. (2024) SASRec benchmark uses this loss.

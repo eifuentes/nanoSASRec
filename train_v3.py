@@ -4,7 +4,8 @@ train_v3.py - SASRec + Generalized Binary Cross-Entropy (gBCE)
 Single-file implementation of Self-Attentive Sequential Recommendation (SASRec)
 with gBCE loss to correct overconfidence from negative undersampling.
 
-Run using the command: `uv run python train_v3.py --epochs 200 --eval-every 20`
+Run using the command: `uv run python train_v3.py --epochs 400 --eval-every 20`
+(gBCE learns more slowly than sampled softmax, so v3 trains twice as long as v1, v2 and v4.)
 Be sure to specify the device you want to run on using the --device argument.
 
 References:
@@ -447,9 +448,9 @@ def main():
     parser.add_argument("--blocks", type=int, default=2, help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=1, help="Number of attention heads")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
-    parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
+    parser.add_argument("--epochs", type=int, default=400, help="Number of epochs for training")
     parser.add_argument("--num-negatives", type=int, default=256, help="Number of negatives to sample for training")
-    parser.add_argument("--t", type=float, default=0.5, help="gBCE calibration parameter (0 < t < 1)")
+    parser.add_argument("--t", type=float, default=0.75, help="gBCE calibration parameter (0 <= t <= 1)")
     parser.add_argument("--topk", type=int, default=10, help="Cutoff for HR@K and NDCG@K")
     parser.add_argument("--eval-every", type=int, default=20, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
@@ -547,20 +548,22 @@ def main():
             # accumulate average positive probability per batch
             avg_pos_prob += pos_probas_seq.mean().item()
 
-            # Calculate generalized binary cross entropy (gBCE) loss
-            # BCE: -log(P) for positives (push toward 1), -log(1-P) for negatives (push toward 0)
-            # gBCE: introduce t as calibration parameter to control positive term sigmoid shape
-            # and average over num_negatives if more than 1 is provided
-            # NOTE: `t` calibration parameter (0 < t < 1) that downweights positive signal
-            # to correct for undersampling negatives relative to the full catalog
-            # This implementation uses `t` as a direct loss weight, which approximates
-            # the paper's sigmoid^beta formulation. See Equation 28 in Petrov & Macdonald
-            # (ACM TORS 2025, doi:10.1145/3699521) for the exact reparameterization:
-            #   beta = alpha * (t * (1 - 1/alpha) + 1/alpha)
-            #   where alpha = num_negs / (num_items - 1)
-            pos_scores_seq = args.t * pos_probas_seq.log().neg()  # size(batch_size, seq_len)
-            neg_scores_seq = (1 - args.t) * (1 - neg_probas_seq).log().neg().mean(dim=-1)  # size(batch_size, seq_len)
-            loss = pos_scores_seq + neg_scores_seq
+            # Calculate generalized binary cross entropy (gBCE) loss (Petrov & Macdonald, RecSys 2023)
+            # BCE: -log(P) for the positive (push toward 1), -log(1-P) for each negative (push toward 0).
+            # With k sampled negatives out of (num_items - 1), BCE learns probabilities that are far too high,
+            # because the model sees far fewer negatives than really exist (overconfidence).
+            # gBCE raises the positive probability to a power beta < 1, which is the same as
+            # multiplying the positive term by beta: -log(P^beta) = beta * -log(P).
+            #   alpha = k / (num_items - 1)                 the fraction of negatives we sample
+            #   beta  = alpha * (t * (1 - 1/alpha) + 1/alpha)
+            # t = 0 gives beta = 1 (plain BCE); t = 1 gives beta = alpha (fully calibrated).
+            # Same as the reference code (github.com/asash/gSASRec-pytorch), which averages over the
+            # positive and the k negatives.
+            alpha = args.num_negatives / (num_items - 1)
+            beta = alpha * (args.t * (1 - 1 / alpha) + 1 / alpha)
+            pos_scores_seq = beta * pos_probas_seq.log().neg()  # size(batch_size, seq_len)
+            neg_scores_seq = (1 - neg_probas_seq).log().neg().sum(dim=-1)  # size(batch_size, seq_len)
+            loss = (pos_scores_seq + neg_scores_seq) / (args.num_negatives + 1)
 
             # Apply mask to remove sequences that have padding values as positive targets
             # which are invalid targets and add noise to the loss signal

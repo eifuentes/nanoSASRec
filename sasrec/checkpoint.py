@@ -2,8 +2,11 @@
 
 Each run keeps its checkpoints in its own directory, named from the training
 arguments that change what the run computes. Re-running the same command
-finds that directory and continues from the latest checkpoint. This is what
-happens when Modal preempts a container and restarts it with the same input.
+finds that directory and continues from the latest checkpoint. That works
+after anything that kills the process: a crash, Ctrl-C, an out-of-memory kill,
+or a cloud preemption. Modal re-runs the command for you after a preemption;
+anywhere else, re-run it yourself. Only the epochs since the last checkpoint
+are lost.
 
 A checkpoint holds the model, the optimizer, and the state of every random
 number generator training draws from (Python for user sampling, NumPy for
@@ -24,12 +27,22 @@ import torch
 # Arguments that don't change the weights a run produces, so they are left out of
 # the run name. Leaving out --epochs means a finished run can be extended by
 # re-running it with a larger --epochs (the learning rate is constant).
-NOT_PART_OF_RUN = ("data_dir", "device", "epochs", "eval_every", "topk", "checkpoint_dir", "checkpoint_every")
+ARGS_EXCLUDED_FROM_RUN_HASH = (
+    "data_dir",
+    "device",
+    "epochs",
+    "eval_every",
+    "topk",
+    "checkpoint_dir",
+    "checkpoint_every",
+)
 
 
 def run_dir(checkpoint_dir: str, script: str, args: Namespace) -> str:
     """Directory for this run's checkpoints, e.g. checkpoints/train_v7-ml-20m-seed42-3f9a1c2e."""
-    config = {k: v for k, v in vars(args).items() if k not in NOT_PART_OF_RUN}
+    config = {k: v for k, v in vars(args).items() if k not in ARGS_EXCLUDED_FROM_RUN_HASH}
+    # Keep the first 8 hex characters (32 bits) of the hash: short enough to read in a path,
+    # and long enough that two different configurations practically never share one.
     digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:8]
     name = os.path.splitext(os.path.basename(script))[0]
     return os.path.join(checkpoint_dir, f"{name}-{args.dataset}-seed{args.seed}-{digest}")

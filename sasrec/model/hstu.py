@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .sasrec import bucket_relative_positions, bucket_temporal_distances, init_weights
+from .sasrec import NUM_BIAS_BUCKETS, bucket_relative_positions, bucket_temporal_distances, init_weights
 
 
 class SelfAttention(nn.Module):
@@ -183,7 +183,7 @@ class HSTU(nn.Module):
         embedding_dim: int,
         num_blocks: int = 2,
         num_heads: int = 1,
-        num_relative_bias_buckets: int = 32,
+        num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
     ):
 
         super().__init__()
@@ -230,16 +230,21 @@ class HSTU(nn.Module):
         # NOTE: do not need to add other 2 dimensions to `ones` creation due to broadcasting in masked_fill later
         mask = torch.triu(torch.ones((max_seq_len - 1, max_seq_len - 1)), diagonal=1).bool()
         self.register_buffer("causal_mask", mask)
+        # Bucket the distance between every query and key position once, here, rather than
+        # in every forward pass. Distance i - j counts how many steps back key j is from query i.
+        # persistent=False keeps it out of saved checkpoints, since it can always be rebuilt.
+        positions = torch.arange(max_seq_len - 1)
+        distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (max_seq_len - 1, max_seq_len - 1)
+        # the farthest a key can be from its query is max_seq_len - 2 steps
+        buckets = bucket_relative_positions(distances, max_seq_len - 2, num_relative_bias_buckets)
+        self.register_buffer("position_buckets", buckets, persistent=False)
 
     def forward(self, x: torch.Tensor, timestamps: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len = x.size()
 
         # calculate relative position biases to use later
-        positions = torch.arange(seq_len, device=x.device)
-        relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
-        relative_position_buckets = bucket_relative_positions(
-            relative_position_distances, num_buckets=self.num_relative_bias_buckets
-        )
+        # every (query, key) distance was bucketed once in __init__, so just slice
+        relative_position_buckets = self.position_buckets[:seq_len, :seq_len]  # (seq_len, seq_len)
         position_biases = self.position_bias_embedding_table(
             relative_position_buckets
         )  # (seq_len, seq_len, num_heads)

@@ -13,7 +13,7 @@ ablation (Table 3) shows temporal bias is more important than positional
 bias for sequential recommendation.
 
 Distances are log-bucketed: fine-grained for recent items (0-15 steps/seconds),
-coarse for distant items. 32 buckets each, shared across all attention blocks.
+coarse for distant items. 32 buckets each (T5's layout), shared across all attention blocks.
 
 References:
     - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture

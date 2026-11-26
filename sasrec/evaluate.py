@@ -98,9 +98,10 @@ def evaluate(
                 ts_seq = [0] * (eval_max_len - ts_len) + ts_seq
             all_ts.append(ts_seq)
 
-        # seen = items in the input history, masked out of the ranking.
-        # NOTE: assumes no repeat consumption (true for MovieLens). If the ground truth
-        # also appeared in the history, it would be masked and count as a miss.
+        # seen = every item the user interacted with before the ground truth, not only
+        # the last max_len the model reads. These are masked out of the ranking, as in
+        # eSASRec (RecTools' filter_viewed). This assumes no repeat consumption, which
+        # holds for MovieLens: a repeated ground truth would be masked and count as a miss.
         if mode == "valid":
             all_gts.append(user_valid[user][0])
             all_seens.append(set(user_train[user]))
@@ -108,7 +109,8 @@ def evaluate(
             all_gts.append(user_test[user][0])
             all_seens.append(set(user_train[user]) | set(user_valid[user]))
 
-    # Pre-compute all item embeddings once, shared by every batch
+    # Pre-compute all item embeddings once, shared by every batch. Item ids start at 1
+    # because 0 is padding, so row i holds item i + 1 and item id - 1 is its column.
     all_item_embs = model.item_embedding_table(
         torch.arange(1, num_items + 1, device=device)
     )  # (num_items, embedding_dim)
@@ -131,18 +133,18 @@ def evaluate(
             output_batch = model(input_batch, timestamps=ts_batch)
         else:
             output_batch = model(input_batch)
-        pred_batch = output_batch[:, -1, :]  # (batch, embedding_dim)
+        pred_batch = output_batch[:, -1, :]  # (batch_size, embedding_dim)
 
         # L2 normalize output embeddings upstream so all downstream scoring uses cosine similarity
         if l2_norm:
             pred_batch = torch.nn.functional.normalize(pred_batch, p=2, dim=-1, eps=1e-6)
 
         # Score every item for every user in the batch with one matmul
-        scores_batch = torch.matmul(pred_batch, all_item_embs.T)  # (batch, num_items)
+        scores_batch = torch.matmul(pred_batch, all_item_embs.T)  # (batch_size, num_items)
 
         # Mask seen items with one indexed assignment for the whole batch, instead of
         # one small tensor op per user. Each (row, col) pair is (user's row in the batch,
-        # 0-indexed seen item id).
+        # seen item's column).
         seen_rows, seen_cols = [], []
         for row, seen in enumerate(batch_seens):
             for item in seen:
@@ -154,9 +156,9 @@ def evaluate(
         ] = float("-inf")
 
         # Rank of the ground truth = how many items score strictly higher than it
-        gt_indices = torch.tensor(batch_gts, dtype=torch.long, device=device) - 1  # 0-indexed
-        gt_scores = scores_batch[torch.arange(end - start, device=device), gt_indices]  # (batch,)
-        ranks = (scores_batch > gt_scores.unsqueeze(1)).sum(dim=1)  # (batch,)
+        gt_indices = torch.tensor(batch_gts, dtype=torch.long, device=device) - 1  # item id -> column
+        gt_scores = scores_batch[torch.arange(end - start, device=device), gt_indices]  # (batch_size,)
+        ranks = (scores_batch > gt_scores.unsqueeze(1)).sum(dim=1)  # (batch_size,)
 
         # Convert ranks to metrics
         for rank in ranks.cpu().tolist():

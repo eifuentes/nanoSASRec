@@ -1,7 +1,6 @@
 """evaluate.py - evaluation and demo utilities for nanoSASRec v4+"""
 
 import math
-import random
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -54,9 +53,19 @@ def evaluate(
     user_valid_ts: Optional[Dict[int, List[int]]] = None,
     l2_norm: bool = False,
 ) -> Tuple[float, float]:
+    """Full-catalog HR@K and NDCG@K on the validation or test split.
+
+    mode="valid" ranks the second-to-last item given the train history.
+    mode="test" ranks the last item given the train + valid history.
+
+    The ground truth is ranked against every item in the catalog except the ones
+    already in the user's input history. Both splits use the full catalog: metrics
+    from 100 sampled negatives are inflated and can change which model looks better
+    (Krichene & Rendle, KDD 2020). Validation and test numbers are therefore on the
+    same scale.
+    """
     hrs, ndcgs = [], []
     eval_max_len = max_len - 1
-    full_catalog = mode == "test"
 
     # Pre-build all user sequences, timestamps, and ground truths
     all_seqs = []
@@ -89,16 +98,19 @@ def evaluate(
                 ts_seq = [0] * (eval_max_len - ts_len) + ts_seq
             all_ts.append(ts_seq)
 
+        # seen = every item the user interacted with before the ground truth, not only
+        # the last max_len the model reads. These are masked out of the ranking, as in
+        # eSASRec (RecTools' filter_viewed). This assumes no repeat consumption, which
+        # holds for MovieLens: a repeated ground truth would be masked and count as a miss.
         if mode == "valid":
             all_gts.append(user_valid[user][0])
-            # include ground truth in seen so it's not sampled as a negative
-            all_seens.append(set(user_train[user]) | {user_valid[user][0]})
+            all_seens.append(set(user_train[user]))
         else:
             all_gts.append(user_test[user][0])
-            # exclude ground truth from seen so it's not masked in full-catalog scoring
             all_seens.append(set(user_train[user]) | set(user_valid[user]))
 
-    # Pre-compute all item embeddings once (used by both full-catalog and sampled eval)
+    # Pre-compute all item embeddings once, shared by every batch. Item ids start at 1
+    # because 0 is padding, so row i holds item i + 1 and item id - 1 is its column.
     all_item_embs = model.item_embedding_table(
         torch.arange(1, num_items + 1, device=device)
     )  # (num_items, embedding_dim)
@@ -121,56 +133,37 @@ def evaluate(
             output_batch = model(input_batch, timestamps=ts_batch)
         else:
             output_batch = model(input_batch)
-        pred_batch = output_batch[:, -1, :]  # (batch, embedding_dim)
+        pred_batch = output_batch[:, -1, :]  # (batch_size, embedding_dim)
 
         # L2 normalize output embeddings upstream so all downstream scoring uses cosine similarity
         if l2_norm:
             pred_batch = torch.nn.functional.normalize(pred_batch, p=2, dim=-1, eps=1e-6)
 
-        if full_catalog:
-            # Full-catalog: score all items for all users in one matmul
-            scores_batch = torch.matmul(pred_batch, all_item_embs.T)  # (batch, num_items)
+        # Score every item for every user in the batch with one matmul
+        scores_batch = torch.matmul(pred_batch, all_item_embs.T)  # (batch_size, num_items)
 
-            # Convert ground truths to tensor for batch rank computation
-            gt_indices = torch.tensor(batch_gts, dtype=torch.long, device=device) - 1  # 0-indexed
+        # Mask seen items with one indexed assignment for the whole batch, instead of
+        # one small tensor op per user. Each (row, col) pair is (user's row in the batch,
+        # seen item's column).
+        seen_rows, seen_cols = [], []
+        for row, seen in enumerate(batch_seens):
+            for item in seen:
+                seen_rows.append(row)
+                seen_cols.append(item - 1)
+        scores_batch[
+            torch.tensor(seen_rows, dtype=torch.long, device=device),
+            torch.tensor(seen_cols, dtype=torch.long, device=device),
+        ] = float("-inf")
 
-            for i in range(end - start):
-                # Mask seen items using tensor indexing (GPU-friendly, avoids Python loop)
-                seen_indices = torch.tensor(list(batch_seens[i]), dtype=torch.long, device=device) - 1
-                scores_batch[i, seen_indices] = float("-inf")
+        # Rank of the ground truth = how many items score strictly higher than it
+        gt_indices = torch.tensor(batch_gts, dtype=torch.long, device=device) - 1  # item id -> column
+        gt_scores = scores_batch[torch.arange(end - start, device=device), gt_indices]  # (batch_size,)
+        ranks = (scores_batch > gt_scores.unsqueeze(1)).sum(dim=1)  # (batch_size,)
 
-            # Batch rank computation: how many items score higher than ground truth
-            gt_scores = scores_batch[torch.arange(end - start, device=device), gt_indices]  # (batch,)
-            ranks = (scores_batch > gt_scores.unsqueeze(1)).sum(dim=1)  # (batch,)
-
-            # Convert ranks to metrics
-            for rank in ranks.cpu().tolist():
-                hrs.append(1.0 if rank < topk else 0.0)
-                ndcgs.append((1.0 / math.log2(rank + 2)) if rank < topk else 0.0)
-        else:
-            # Sampled eval: score against 100 random negatives (fast, for validation)
-            for i in range(end - start):
-                ground_truth = batch_gts[i]
-                seen = batch_seens[i]
-
-                negatives = []
-                while len(negatives) < 100:
-                    item = random.randint(1, num_items)
-                    if item not in seen:
-                        negatives.append(item)
-
-                # Use pre-computed embeddings via indexing (avoids redundant embedding lookup)
-                candidate_indices = torch.tensor(
-                    [ground_truth - 1] + [n - 1 for n in negatives],
-                    dtype=torch.long,
-                    device=device,
-                )  # 0-indexed
-                candidate_embs = all_item_embs[candidate_indices]  # (101, embedding_dim)
-                scores = torch.matmul(candidate_embs, pred_batch[i])  # (101,)
-
-                rank = (scores > scores[0]).sum().item()
-                hrs.append(1.0 if rank < topk else 0.0)
-                ndcgs.append((1.0 / math.log2(rank + 2)) if rank < topk else 0.0)
+        # Convert ranks to metrics
+        for rank in ranks.cpu().tolist():
+            hrs.append(1.0 if rank < topk else 0.0)
+            ndcgs.append((1.0 / math.log2(rank + 2)) if rank < topk else 0.0)
 
     hr_at = sum(hrs) / num_users
     ndcg_at = sum(ndcgs) / num_users

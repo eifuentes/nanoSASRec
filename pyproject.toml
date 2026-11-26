@@ -1,6 +1,6 @@
 [project]
 name = "nanosasrec"
-version = "0.2.1"
+version = "0.3.0"
 description = "From SASRec to HSTU, one file at a time"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,6 +13,7 @@ cloud = [
     "modal>=1.4.3",
 ]
 dev = [
+    "pytest>=8",
     "ruff>=0.15.12",
 ]
 
@@ -26,3 +27,7 @@ line-length = 119
 select = ["E", "F", "I"]
 ignore = ["E501"] 
 fixable = ["ALL"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

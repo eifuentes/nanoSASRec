@@ -1,5 +1,5 @@
 """
-model.py - SASRec model architecture for nanoSASRec v4+
+sasrec.py - SASRec model architecture for nanoSASRec v4+
 
 Shared model components used by train_v4.py and later versions.
 Architecture is identical to v1-v3 with these refinements:
@@ -7,7 +7,7 @@ Architecture is identical to v1-v3 with these refinements:
     - Reversed positional embeddings (Huang 2025, arxiv: 2504.09596)
     - Causal mask as registered buffer (created once, not per forward pass)
     - Configurable feed-forward network hidden dim and activation function
-    - Attention weight dropout (Vaswani et al. 2017, Section 3.1)
+    - Attention weight dropout (standard in Transformer implementations, e.g. tensor2tensor)
     - Residual scaling via ReZero (Bachlechner et al. 2020) for stable depth scaling
     - Relative position bias (Raffel et al. 2020, Zhai et al. 2024) with log-bucketed distances
 """

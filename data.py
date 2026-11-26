@@ -2,15 +2,23 @@
 nanoSASRec data preprocessing.
 
 Downloads and preprocesses datasets for sequential recommendation.
-Uses the exact same preprocessing as the BERT4Rec repository
-(Petrov & Macdonald, RecSys 2022 - arxiv:2207.07483) to ensure
-reproducibility with published numbers.
+ML-20M follows the protocol of the papers we compare against (HSTU,
+eSASRec), so its numbers are comparable with theirs. ML-1M follows
+SASRec/BERT4Rec (5-core), which differs from HSTU's ML-1M.
 
-Protocol:
+Shared protocol:
   - Treat ratings/reviews as implicit feedback (binary interaction)
-  - Sort interactions by timestamp per user
-  - k-core filtering: discard users and items with < 5 interactions
+  - Sort interactions by timestamp per user (stable sort: ties keep file order)
   - Leave-one-out split: last item = test, second-to-last = valid, rest = train
+
+Per-dataset filtering:
+  - ml-1m:  5-core on users and items, as in SASRec / BERT4Rec
+            (Kang & McAuley 2018, Petrov & Macdonald 2022 - arxiv:2207.07483).
+            6,040 users, 3,416 items.
+  - ml-20m: no k-core filtering, so the full 26,744-item catalog is kept. This is
+            the catalog used by HSTU (Zhai et al. 2024 - arxiv:2402.17152) and
+            eSASRec (Tikhonovich et al., RecSys 2025 - arxiv:2508.06450).
+            138,493 users, 26,744 items.
 
 Usage:
   python data.py                    # downloads and preprocesses ML-1M
@@ -18,6 +26,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import zipfile
@@ -35,15 +44,38 @@ URLS = {
     "ml-20m": "https://files.grouplens.org/datasets/movielens/ml-20m.zip",
 }
 
+# MD5 checksums that GroupLens publishes next to each zip (<url>.md5)
+MD5 = {
+    "ml-1m": "c4d9eecfca2ab87c1945afe126590906",
+    "ml-20m": "cd245b17a1ae2cc31bb14903e1204af3",
+}
 
-def download(url: str, dest: str):
-    """Download a file if it doesn't already exist."""
+
+def md5sum(path: str) -> str:
+    """MD5 of a file, read in 1 MB chunks so large zips don't load into memory."""
+    digest = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download(url: str, dest: str, md5: str):
+    """Download a file if it doesn't already exist, then verify its checksum.
+
+    The check also runs on a file that is already on disk, so an interrupted
+    download or a different release of the dataset fails here instead of
+    silently producing a different split.
+    """
     if os.path.exists(dest):
         print(f"  already exists: {dest}")
-        return
-    print(f"  downloading {url} ...")
-    urlretrieve(url, dest)
-    print(f"  saved to {dest}")
+    else:
+        print(f"  downloading {url} ...")
+        urlretrieve(url, dest)
+        print(f"  saved to {dest}")
+    actual = md5sum(dest)
+    if actual != md5:
+        raise ValueError(f"{dest} has MD5 {actual}, expected {md5}. Delete it and re-run to download it again.")
 
 
 def extract_zip(zip_path: str, extract_to: str):
@@ -62,7 +94,7 @@ def extract_zip(zip_path: str, extract_to: str):
 def load_ml1m_raw(data_dir: str):
     """Load MovieLens-1M raw interactions."""
     zip_path = os.path.join(data_dir, "ml-1m.zip")
-    download(URLS["ml-1m"], zip_path)
+    download(URLS["ml-1m"], zip_path, MD5["ml-1m"])
     raw_dir = os.path.join(data_dir, "ml-1m")
     if not os.path.isdir(raw_dir):
         extract_zip(zip_path, data_dir)
@@ -79,7 +111,7 @@ def load_ml1m_raw(data_dir: str):
 def load_ml20m_raw(data_dir: str):
     """Load MovieLens-20M raw interactions."""
     zip_path = os.path.join(data_dir, "ml-20m.zip")
-    download(URLS["ml-20m"], zip_path)
+    download(URLS["ml-20m"], zip_path, MD5["ml-20m"])
     raw_dir = os.path.join(data_dir, "ml-20m")
     if not os.path.isdir(raw_dir):
         extract_zip(zip_path, data_dir)
@@ -183,8 +215,8 @@ def reindex_and_split(interactions: list) -> DatasetSplit:
       num_users:  int
       num_items:  int
     """
-    # sort by (user, timestamp) to get temporal order
-    # NOTE: ensures each users history is sorted from oldest to newest
+    # sort each user's history from oldest to newest. Python's sort is stable, so
+    # interactions with the same timestamp keep their file order (see "ml-20m" below).
     interactions.sort(key=lambda x: (x[0], x[2]))
 
     # build sequences per user (preserving temporal order)
@@ -320,6 +352,23 @@ def write_split(dataset: DatasetSplit, out_dir: str):
     print(f"  Wrote split to {split_path}")
 
 
+def write_metadata(name: str, dataset: DatasetSplit, num_interactions: int, kcore: bool, out_dir: str):
+    """Record which source file and protocol produced split.json, so a split on disk explains itself."""
+    metadata = {
+        "dataset": name,
+        "source": {"url": URLS.get(name), "md5": MD5.get(name)},
+        "kcore": 5 if kcore else None,
+        "split": "leave-one-out; per-user timestamp sort, ties keep source file order",
+        "num_users": dataset.num_users,
+        "num_items": dataset.num_items,
+        "num_interactions": num_interactions,
+    }
+    metadata_path = os.path.join(out_dir, "metadata.json")
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"  Wrote metadata to {metadata_path}")
+
+
 def load_split(data_dir: str):
     """Load a preprocessed split from disk. Used by train_v*.py scripts."""
     split_path = os.path.join(data_dir, "split.json")
@@ -431,12 +480,21 @@ DATASETS = {
         # Expected stats (CL4SRec, 2010.14395):
         #   Users: 22,363  Items: 12,101  Avg actions/user: 8.8
     },
+    # MovieLens-20M on the HSTU / eSASRec protocol (Zhai et al. 2024, Tikhonovich et al. 2025)
+    # - no k-core filtering. GroupLens already guarantees >= 20 ratings per user, and items
+    #   are not filtered, so the long tail stays in the catalog. Item 5-core filtering
+    #   (used in nanoSASRec <= v0.2.1) drops ~8.4k items, makes ranking easier, and breaks
+    #   comparability with published ML-20M numbers.
+    # - ties on timestamp keep their ratings.csv order (stable sort in reindex_and_split).
+    #   This is the same tie-break eSASRec uses (pandas rank(method="first")). eSASRec found that
+    #   the HSTU and FuXi-α preprocessing reorders tied interactions, which changes ~25% of the
+    #   test set, and recomputed those models' metrics on the order-preserving split.
     "ml-20m": {
         "loader": load_ml20m_raw,
-        "kcore": True,
+        "kcore": False,
         "titles_writer": write_item_titles_ml20m,
-        # Expected stats after this repo's preprocessing:
-        #   Users: 138,493  Items: 18,345  Avg actions/user: 144.3
+        # verified in main(): preprocessing fails loudly if these drift
+        "expected": {"num_users": 138_493, "num_items": 26_744, "num_interactions": 20_000_263},
     },
 }
 
@@ -466,12 +524,23 @@ def main():
         filtered = kcore_filter(raw, k=5)
         print(f"  After filtering: {len(filtered)} (removed {len(raw) - len(filtered)})")
     else:
-        print("\n[2/4] Skipping k-core (pre-filtered dataset)")
+        print("\n[2/4] Skipping k-core (not part of this dataset's protocol)")
         filtered = raw
 
     # step 3: reindex and split
     print("\n[3/4] Reindexing and splitting ...")
     dataset = reindex_and_split(filtered)
+
+    # sanity check against published dataset statistics, when the protocol pins them down
+    expected = ds.get("expected")
+    if expected:
+        actual = {"num_users": dataset.num_users, "num_items": dataset.num_items, "num_interactions": len(filtered)}
+        mismatches = {k: (actual[k], v) for k, v in expected.items() if actual[k] != v}
+        if mismatches:
+            raise ValueError(
+                f"{args.dataset} stats do not match the published protocol (actual, expected): {mismatches}"
+            )
+        print(f"  Stats match published protocol: {expected}")
 
     # step 4: write outputs
     out_dir = os.path.join(args.data_dir, args.dataset)
@@ -479,6 +548,7 @@ def main():
     print("\n[4/4] Writing outputs ...")
     write_txt(dataset, txt_path)
     write_split(dataset, out_dir)
+    write_metadata(args.dataset, dataset, len(filtered), ds["kcore"], out_dir)
 
     # write item titles if available (for human-readable predictions)
     titles_writer = ds.get("titles_writer")

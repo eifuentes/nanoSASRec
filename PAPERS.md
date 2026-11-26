@@ -3,8 +3,8 @@
 Every design decision in this repo traces back to a specific paper. This document maps code to research.
 
 The story: SASRec replaces RNNs with Transformers, BERT4Rec challenges it and the
-community splits, the loss function is identified as the real problem, SASRec's depth-scaling
-failure is diagnosed, PinnerFormer bridges to production, and HSTU carries the line into
+community splits, the loss function is identified as the real problem, papers argue SASRec
+fails to scale with depth, PinnerFormer bridges to production, and HSTU carries the line into
 trillion-parameter scale.
 
 ## Foundation (2016-2018)
@@ -16,17 +16,17 @@ trillion-parameter scale.
 
 ## The SASRec vs. BERT4Rec debate (2019-2022)
 
-- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Established the preprocessing and evaluation standards this repo follows.
+- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study. Reviewed 370 citing papers, found results inconsistent. BERT4Rec wins only 64% of comparisons. Conclusion: BERT4Rec is SOTA *if trained long enough*, but most papers undertrained it. Its ML-1M preprocessing (5-core filtering, leave-one-out) is the one this repo uses for ML-1M.
 
 ## The loss function is the real problem (2023-2025)
 
 Two independent groups reached the same conclusion in the same year: SASRec's
 underperformance is caused by its loss function, not its architecture.
 
-- **Klenitskiy & Vasilev, RecSys 2023** (2309.07602): "Turning Dross Into Gold Loss." Shows that SASRec trained with cross-entropy loss (full or sampled softmax) matches or exceeds BERT4Rec while training faster. The paper that proved architecture wasn't the bottleneck.
-- **Petrov & Macdonald, RecSys 2023** (2308.07192): **gSASRec.** Defines overconfidence formally: BCE + negative sampling causes predicted probabilities to approach 1.0. Proposes gBCE loss with calibration parameter β to fix it. **Best Full Paper Award, RecSys 2023.**
+- **Klenitskiy & Vasilev, RecSys 2023** (2309.07602): "Turning Dross Into Gold Loss." Shows that SASRec trained with cross-entropy loss (full or sampled softmax) matches or exceeds BERT4Rec while training faster. The paper that showed architecture wasn't the bottleneck.
+- **Petrov & Macdonald, RecSys 2023** (2308.07192): **gSASRec.** Defines overconfidence formally: BCE + negative sampling causes predicted probabilities to approach 1.0. Proposes gBCE loss, which raises the positive's predicted probability to a power β < 1 set by a calibration parameter t and the negative sampling rate. Our v3 implements it as in the paper's reference code (github.com/asash/gSASRec-pytorch). **Best Full Paper Award, RecSys 2023.**
 - **Petrov & Macdonald, ACM TORS 2025** (doi:10.1145/3699521): Expanded journal version of gSASRec. Full proofs, calibration error drops from 0.966 to 0.01. Recommends t ∈ [0.75, 0.9] with 128-256 negatives.
-- **Jean et al., ACL-IJCNLP 2015** (1412.2007): Original Sampled Softmax for NLP (large vocabulary neural machine translation). The technique gSASRec and the "Dross" paper adapt for recommendation.
+- **Jean et al., ACL-IJCNLP 2015** (1412.2007): Original Sampled Softmax for NLP (large vocabulary neural machine translation). The technique the "Dross" paper adapts for recommendation.
 - **Zhai et al., KDD 2023** (2306.04039): "Revisiting Neural Retrieval on Accelerators." Applies sampled softmax to large-scale retrieval. Same first author as HSTU. The Zhai et al. (2024) SASRec benchmark uses this loss.
 
 ## Implementation details that move metrics 2-5%
@@ -38,26 +38,27 @@ underperformance is caused by its loss function, not its architecture.
 
 ## Depth scaling and residual stabilization (2020-2023)
 
-- **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks outperform 16 blocks without it.
-- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers.
+- **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks match 16 blocks without it.
+- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers. (Our v5 sweep doesn't reproduce this; see Guo et al. below.)
 - **Peng et al., TKDD 2023** (2311.07742): "Modeling Sequences as Star Graphs to Address Over-smoothing." Cosine similarity among sequence elements rises from 0.5 to 0.8 from block 1 to block 6. Formalizes why deeper SASRec doesn't improve.
 
 ## Evaluation methodology
 
 - **Krichene & Rendle, KDD 2020**: "On Sampled Metrics for Item Recommendation." Sampled metrics (100 negatives) are biased and can reverse model rankings. Use full-catalog evaluation when feasible.
-- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Established dataset preprocessing standards used throughout this repo.
+- **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Source of this repo's ML-1M preprocessing.
+- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** Re-benchmarks Transformer recommenders, including HSTU and FuXi-α, on one shared split and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M protocol and published comparisons follow this paper. eSASRec itself is SASRec with sampled softmax and a gated Transformer layer (LiGR).
 - **Rendle, Zhang & Koren, 2019** (1905.01395): "On the Difficulty of Evaluating Baselines." Carefully tuned vanilla MF beats most newly proposed methods. The reason this repo insists on getting implementation details right before claiming improvements.
 
 ## The bridge to HSTU (2022-2024)
 
-- **Li, Wang & McAuley, WSDM 2020** (wsdm20b): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute timestamps and time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
-- **Pancha, Zhai et al., KDD 2022** (2205.04507): **PinnerFormer.** Industrial-scale SASRec at Pinterest. Introduces "Dense All Action" loss (predict all future actions, not just next item). Pre-LN residuals, sampled softmax. Co-authored by Jiaqi Zhai, the direct architectural stepping stone to HSTU.
-- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." The Rosetta Stone. Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling.
+- **Li, Wang & McAuley, WSDM 2020** (doi: 10.1145/3336191.3371786): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute positions and the time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
+- **Pancha et al., KDD 2022** (2205.04507): **PinnerFormer.** Pinterest's industrial SASRec-style model. Introduces "Dense All Action" loss (predict all future actions, not just the next item). Pre-LN residuals, sampled softmax.
+- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling. Our v5 sweep does not see the collapse: with v4's initialization and sampled softmax, plain SASRec keeps improving up to 16 blocks, with diminishing returns.
 - **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. M-FALCON inference. Trillion-parameter scale with power-law scaling. The north star.
 
 ## HSTU extensions and related architectures
 
-- **FuXi-α, WWW 2025** (2505.04180): Extends the HSTU block with a Modified Feed-Forward Network (MFFN) using SwiGLU in a two-stage architecture. Claims further improvements on top of HSTU's gating mechanism.
+- **FuXi-α, WWW 2025** (2502.03036): Extends the HSTU block with a Modified Feed-Forward Network (MFFN) using SwiGLU in a two-stage architecture. Claims further improvements on top of HSTU's gating mechanism.
 
 *Everything above maps directly to code in this repo or informs its design decisions. Everything below is context on where the field went after HSTU. Useful background, but not implemented here.*
 
@@ -65,7 +66,7 @@ underperformance is caused by its loss function, not its architecture.
 
 These are techniques from the HSTU paper and related work that are not yet implemented but represent natural next steps for this repo.
 
-- **Stochastic Length Training** (Zhai et al., ICML 2024): During training, randomly sample a contiguous subsequence of each user's history instead of always using the most recent max_len items. This lets the model see different windows of user behavior across epochs, learning both recent and historical patterns without increasing sequence length or memory. At Meta's scale with sequences of 8,192+ items, this is critical for making long-sequence training tractable. On ML-20M with sequences averaging 144 items it may not move metrics, but it's an elegant technique worth understanding.
+- **Stochastic Length Training** (Zhai et al., ICML 2024): During training, randomly sample a contiguous subsequence of each user's history instead of always using the most recent max_len items. This lets the model see different windows of user behavior across epochs, learning both recent and historical patterns without increasing sequence length or memory. At Meta's scale with sequences of 8,192+ items, this is critical for making long-sequence training tractable. On ML-20M with sequences averaging 144 items it may not move metrics, but it is worth understanding.
 
 ## Where the field went next (not implemented here)
 
@@ -102,7 +103,7 @@ The only non-transformer contender is Mamba/SSM-based sequential recommendation 
 
 ### Open-source
 
-- **Meta**: [generative-recommenders](https://github.com/meta-recsys/generative-recommenders). Official HSTU + M-FALCON implementation. The definitive reference.
+- **Meta**: [generative-recommenders](https://github.com/meta-recsys/generative-recommenders). Official HSTU + M-FALCON implementation, and the reference for our HSTU versions.
 - **Snap**: [GRID](https://github.com/snap-research/GRID). Modular Semantic ID framework with RQ-KMeans, RQ-VAE, and ablation configs.
 - **MiniOneRec** (2510.24431): Open-source SFT to RL workflow for LLM-based generative recommendation.
 - **NVIDIA CUTLASS**: Official HSTU attention kernel.

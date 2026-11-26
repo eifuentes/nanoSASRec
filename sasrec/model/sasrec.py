@@ -304,14 +304,19 @@ class SASRec(nn.Module):
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
-        relative_bias: bool = False,
+        position_bias: bool = False,
+        time_bias: bool = False,
         num_relative_bias_buckets: int = 32,
     ):
 
         super().__init__()
 
         # arguments
-        self.use_relative_bias = relative_bias
+        # Either relative bias replaces absolute position embeddings. With only the time bias,
+        # the model gets no position information beyond the causal mask (Guo et al., 2024 ablation).
+        self.use_position_bias = position_bias
+        self.use_time_bias = time_bias
+        self.use_relative_bias = position_bias or time_bias
         self.num_relative_bias_buckets = num_relative_bias_buckets
 
         # setup item and position embeddings tables to convert integers to dense vectors
@@ -320,17 +325,18 @@ class SASRec(nn.Module):
             num_embeddings=num_items + 1, embedding_dim=embedding_dim, padding_idx=0
         )
         # determine bias embedding table types
-        if self.use_relative_bias:
+        if self.use_position_bias:
             self.position_bias_embedding_table = nn.Embedding(
                 num_embeddings=num_relative_bias_buckets, embedding_dim=num_heads
             )
+        if self.use_time_bias:
             # Separate embedding table for temporal biases, learns how time gaps
             # between interactions affect attention. Items consumed minutes apart
             # (same session) get different bias than items months apart (behavior drift).
             self.temporal_bias_embedding_table = nn.Embedding(
                 num_embeddings=num_relative_bias_buckets, embedding_dim=num_heads
             )
-        else:
+        if not self.use_relative_bias:
             # max_seq_len - 1 because the shifted input/target split reduces sequence length by 1
             self.position_embedding_table = nn.Embedding(num_embeddings=max_seq_len - 1, embedding_dim=embedding_dim)
         self.dropout_embedding = nn.Dropout(p=dropout_rate)
@@ -364,20 +370,23 @@ class SASRec(nn.Module):
 
         if self.use_relative_bias:
             # calculate relative position and temporal biases to use later
-            positions = torch.arange(seq_len, device=x.device)
-            relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
-            relative_position_buckets = bucket_relative_positions(
-                relative_position_distances, num_buckets=self.num_relative_bias_buckets
-            )
-            position_biases = self.position_bias_embedding_table(
-                relative_position_buckets
-            )  # (seq_len, seq_len, num_heads)
-            # required permutation so attention scores are compatible
-            # permute from (seq_len, seq_len, num_heads) to (1, num_heads, seq_len, seq_len)
-            # to broadcast with attn_scores shape (batch_size, num_heads, seq_len, seq_len)
-            position_biases = position_biases.permute(2, 0, 1).unsqueeze(0)  # (1, num_heads, seq_len, seq_len)
+            # biases stay None if neither applies (time bias only, but no timestamps given)
+            biases = None
+            if self.use_position_bias:
+                positions = torch.arange(seq_len, device=x.device)
+                relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
+                relative_position_buckets = bucket_relative_positions(
+                    relative_position_distances, num_buckets=self.num_relative_bias_buckets
+                )
+                position_biases = self.position_bias_embedding_table(
+                    relative_position_buckets
+                )  # (seq_len, seq_len, num_heads)
+                # required permutation so attention scores are compatible
+                # permute from (seq_len, seq_len, num_heads) to (1, num_heads, seq_len, seq_len)
+                # to broadcast with attn_scores shape (batch_size, num_heads, seq_len, seq_len)
+                biases = position_biases.permute(2, 0, 1).unsqueeze(0)  # (1, num_heads, seq_len, seq_len)
             # adds temporal timestamp biases to position biases in similar fashion
-            if timestamps is not None:
+            if self.use_time_bias and timestamps is not None:
                 # Compute pairwise time differences between all positions in the sequence.
                 # Unlike positional distances (same for all users), temporal distances are
                 # per-user since each user has different interaction timestamps.
@@ -388,14 +397,15 @@ class SASRec(nn.Module):
                 # NOTE: temporal bias is (batch_size, num_heads, seq_len, seq_len)
                 # not (1, num_heads, seq_len, seq_len) because each user has different timestamps.
                 temporal_biases = temporal_biases.permute(0, 3, 1, 2)  # (batch_size, num_heads, seq_len, seq_len)
-                position_biases = position_biases + temporal_biases  # broadcast: (1,h,s,s) + (b,h,s,s)
+                # broadcast: (1,h,s,s) + (b,h,s,s)
+                biases = temporal_biases if biases is None else biases + temporal_biases
             # input is simply the item embeddings
             x = item_embeddings
             # apply dropout
             x = self.dropout_embedding(x)
-            # process through entire module list of attention blocks with position biases
+            # process through entire module list of attention blocks with relative biases
             for attn_block in self.attn_blocks:
-                x = attn_block(x, mask=self.causal_mask, bias=position_biases)  # (batch_size, seq_len, embedding_dim)
+                x = attn_block(x, mask=self.causal_mask, bias=biases)  # (batch_size, seq_len, embedding_dim)
         else:
             # convert item positions to dense vectors
             # NOTE: Reversed positional indexing (Huang 2025, arxiv: 2504.09596):

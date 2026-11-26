@@ -395,7 +395,9 @@ item_5  [    4       3       2       1       0   ]
 
 Negative values mean "this item is in the future." Causal masking zeros those out since items can't attend forward. What remains are the positive distances: "this item was 1 step back, that one was 3 steps back."
 
-We do the same with timestamps. If item_2 happened Monday and item_5 that Thursday, the gap is 3 days. Raw gaps can be huge, so we compress them into 32 buckets. For positions, buckets 0-15 are exact (0, 1, ... 15 steps back) and buckets 16-31 grow by about 17% each (16, 19, 22, ... up to 198). For time, which is in seconds, buckets 0-15 are 0-15 seconds and the rest are log-spaced up to 30 days; anything older shares the last bucket. Each bucket gets a learnable bias per attention head.
+We do the same with timestamps. If item_2 happened Monday and item_5 that Thursday, the gap is 3 days. Raw gaps can be huge, so we compress them into 32 buckets. For positions, buckets 0-15 are exact (0, 1, ... 15 steps back) and buckets 16-31 grow by about 17% each (16, 19, 22, ... up to 198). For time, which is in seconds, buckets 0-15 are 0-15 seconds and the rest are log-spaced toward a 30-day cap. Because bucket indices round down, the last bucket actually starts at about 14 days, so anything older than two weeks shares it. On ML-20M that's about a quarter of the item pairs within a user's last 199 items. Each bucket gets a learnable bias per attention head.
+
+These numbers (32 buckets, half exact, half log-spaced) come from T5 (Raffel et al. 2020), a language model; the T5 paper left tuning them to future work, and no recommendation paper we know of tuned them either. Meta's original HSTU code instead uses 128 log buckets for time with no practical cap, and one learned value per position distance with no buckets. Trying those is open work ([#37](https://github.com/eifuentes/nanoSASRec/issues/37), [#38](https://github.com/eifuentes/nanoSASRec/issues/38)).
 
 **Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; v6 is seed 42, v7 is mean ± std over seeds 42-44):**
 

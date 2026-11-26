@@ -18,6 +18,14 @@ from typing import Literal, Optional
 import torch
 import torch.nn as nn
 
+# Relative bias bucket settings. Both come from T5 (Raffel et al. 2020), a language model;
+# no recommendation paper we know of tuned them. Issues #37 and #38 try other layouts.
+# Half the buckets are exact (distances 0-15), the other half are log-spaced.
+NUM_BIAS_BUCKETS = 32
+# Time gaps are in seconds. The log buckets stretch toward this cap, but because bucket
+# indices round down, the last bucket starts at about 14.2 days, not 30.
+MAX_TIME_GAP = 86400 * 30
+
 
 def init_weights(module: nn.Module, embedding_dim: int):
     """Initialize weights using truncated normal distribution.
@@ -41,19 +49,21 @@ def init_weights(module: nn.Module, embedding_dim: int):
         nn.init.zeros_(module.bias)
 
 
-def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int = 32) -> torch.Tensor:
+def bucket_relative_positions(
+    relative_positions: torch.Tensor, max_distance: int, num_buckets: int = NUM_BIAS_BUCKETS
+) -> torch.Tensor:
     """Convert relative position distances to bucket indices.
 
     First half of buckets are linear (one per distance for fine-grained recency).
-    Second half are logarithmically spaced (coarse for distant items).
+    Second half are logarithmically spaced (coarse for distant items), up to
+    max_distance, the largest distance the model will see (max_seq_len - 2).
     """
     # with num_buckets=32, this is 16.
     # Distances 0-15 each get their own dedicated bucket.
     # Distance 0 → bucket 0, distance 1 → bucket 1, ..., distance 15 → bucket 15
     max_exact = num_buckets // 2
-    # determine max_distance from the tensor of relative distances itself
-    # guard for sequences where max_distance is less than max_exact
-    max_distance = max(relative_positions.max().item(), max_exact + 1)
+    # guard for short sequences where max_distance is less than max_exact
+    max_distance = max(max_distance, max_exact + 1)
     # only care about non-negative distances (causal: i attends to j where j <= i)
     # negative distances mean "future positions" which causal masking blocks anyway.
     # clamp them to 0 so we don't get negative indices or log-of-negative errors.
@@ -85,19 +95,19 @@ def bucket_relative_positions(relative_positions: torch.Tensor, num_buckets: int
     return buckets
 
 
-def bucket_temporal_distances(relative_timestamps: torch.Tensor, num_buckets: int = 32) -> torch.Tensor:
-    """Convert relative timestamp timedeltas to bucket indices.
+def bucket_temporal_distances(
+    relative_timestamps: torch.Tensor, num_buckets: int = NUM_BIAS_BUCKETS, max_timedelta: int = MAX_TIME_GAP
+) -> torch.Tensor:
+    """Convert relative timestamp timedeltas (seconds) to bucket indices.
 
     First half of buckets are linear (one per timedelta for fine-grained recency).
-    Second half are logarithmically spaced (coarse for larger timedeltas).
+    Second half are logarithmically spaced (coarse for larger timedeltas). Every gap
+    from about 14 days up (see MAX_TIME_GAP) shares the last bucket.
     """
     # with num_buckets=32, this is 16.
-    # Distances 0-15 each get their own dedicated bucket.
-    # Distance 0 → bucket 0, timedelta 1 → bucket 1, ..., timedelta 15 → bucket 15
+    # Gaps of 0-15 seconds each get their own dedicated bucket.
+    # 0 s → bucket 0, 1 s → bucket 1, ..., 15 s → bucket 15
     max_exact = num_buckets // 2
-    # determine max_timedelta as a lookback window in seconds
-    # picked 30 days which covers most user behavior windows
-    max_timedelta = 86400 * 30  # 30 days in seconds
     # only care about non-negative timedeltas (causal: i attends to j where j <= i)
     # negative timedeltas mean "future timestamps" which causal masking blocks anyway.
     # clamp them to 0 so we don't get negative indices or log-of-negative errors.
@@ -305,7 +315,7 @@ class SASRec(nn.Module):
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
         relative_bias: bool = False,
-        num_relative_bias_buckets: int = 32,
+        num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
     ):
 
         super().__init__()
@@ -356,6 +366,15 @@ class SASRec(nn.Module):
         # NOTE: do not need to add other 2 dimensions to `ones`` creation due to broadcasting in masked_fill later
         mask = torch.triu(torch.ones((max_seq_len - 1, max_seq_len - 1)), diagonal=1).bool()
         self.register_buffer("causal_mask", mask)
+        if self.use_relative_bias:
+            # Bucket the distance between every query and key position once, here, rather than
+            # in every forward pass. Distance i - j counts how many steps back key j is from query i.
+            # persistent=False keeps it out of saved checkpoints, since it can always be rebuilt.
+            positions = torch.arange(max_seq_len - 1)
+            distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (max_seq_len - 1, max_seq_len - 1)
+            # the farthest a key can be from its query is max_seq_len - 2 steps
+            buckets = bucket_relative_positions(distances, max_seq_len - 2, num_relative_bias_buckets)
+            self.register_buffer("position_buckets", buckets, persistent=False)
 
     def forward(self, x: torch.Tensor, timestamps: Optional[torch.Tensor] = None) -> torch.Tensor:
         batch_size, seq_len = x.size()
@@ -364,11 +383,8 @@ class SASRec(nn.Module):
 
         if self.use_relative_bias:
             # calculate relative position and temporal biases to use later
-            positions = torch.arange(seq_len, device=x.device)
-            relative_position_distances = positions.unsqueeze(1) - positions.unsqueeze(0)  # (seq_len, seq_len)
-            relative_position_buckets = bucket_relative_positions(
-                relative_position_distances, num_buckets=self.num_relative_bias_buckets
-            )
+            # every (query, key) distance was bucketed once in __init__, so just slice
+            relative_position_buckets = self.position_buckets[:seq_len, :seq_len]  # (seq_len, seq_len)
             position_biases = self.position_bias_embedding_table(
                 relative_position_buckets
             )  # (seq_len, seq_len, num_heads)

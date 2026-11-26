@@ -20,7 +20,8 @@ MODELS = {
         num_blocks=2,
         num_heads=2,
         scale_residual=True,
-        relative_bias=True,
+        position_bias=True,
+        time_bias=True,
     ),
     "hstu": lambda: HSTU(NUM_ITEMS, MAX_LEN, dropout_rate=0.0, embedding_dim=16, num_blocks=2, num_heads=2),
 }
@@ -80,3 +81,57 @@ def test_time_buckets_cover_seconds_to_30_days():
     assert buckets[:3] == [0, 1, 15]  # gaps under 16 seconds get their own bucket
     assert buckets == sorted(buckets)
     assert buckets[-2] == buckets[-1] == 31  # 30 days or more share the last bucket
+
+
+def _relbias_sasrec(position_bias, time_bias):
+    return SASRec(
+        NUM_ITEMS,
+        MAX_LEN,
+        dropout_rate=0.0,
+        embedding_dim=16,
+        num_blocks=2,
+        num_heads=2,
+        scale_residual=True,
+        position_bias=position_bias,
+        time_bias=time_bias,
+    ).eval()
+
+
+@pytest.mark.parametrize("position_bias, time_bias", [(True, False), (False, True)])
+def test_position_and_time_bias_switch_independently(position_bias, time_bias):
+    # v7 can turn each relative bias off on its own (Guo et al., 2024 ablate them separately).
+    both = _relbias_sasrec(position_bias=True, time_bias=True)
+    # Re-draw every weight so no branch starts at zero (ReZero init would hide the biases)
+    torch.manual_seed(1)
+    for p in both.parameters():
+        p.data.normal_(0, 0.5)
+    one = _relbias_sasrec(position_bias, time_bias)
+    assert hasattr(one, "position_bias_embedding_table") == position_bias
+    assert hasattr(one, "temporal_bias_embedding_table") == time_bias
+    assert not hasattr(one, "position_embedding_table")  # still relative, not absolute positions
+    # Same weights, minus the table that was switched off
+    missing, unexpected = one.load_state_dict(both.state_dict(), strict=False)
+    assert missing == []
+    assert unexpected == [
+        "temporal_bias_embedding_table.weight" if position_bias else "position_bias_embedding_table.weight"
+    ]
+
+    items, timestamps = _inputs()
+    with torch.no_grad():
+        out_both = both(items, timestamps)
+        out_one = one(items, timestamps)
+        # the switched-off bias no longer contributes
+        assert not torch.allclose(out_both, out_one)
+        if position_bias:
+            # position only: timestamps are ignored
+            assert torch.allclose(out_one, one(items, timestamps * 7 + 3))
+        else:
+            # time only: the output depends on the timestamps
+            assert not torch.allclose(out_one, one(items, timestamps * 7 + 3))
+
+
+def test_no_relative_bias_falls_back_to_absolute_positions():
+    model = _relbias_sasrec(position_bias=False, time_bias=False)
+    assert hasattr(model, "position_embedding_table")
+    assert not hasattr(model, "position_bias_embedding_table")
+    assert not hasattr(model, "temporal_bias_embedding_table")

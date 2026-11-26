@@ -163,7 +163,7 @@ uv run ruff check .
 uv run pytest
 ```
 
-The tests are deliberately few. They cover the protocol decisions that published comparisons depend on: the leave-one-out split with its tie-break, and full-catalog ranking with history masking.
+The tests are deliberately few. They cover the protocol decisions that published comparisons depend on (the leave-one-out split with its tie-break, and full-catalog ranking with history masking) and that a resumed run matches an uninterrupted one.
 
 ## Remote GPU Training
 
@@ -177,6 +177,14 @@ uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20
 `remote.py` automatically preprocesses the requested dataset, mounts the local training scripts and `sasrec/` package, adds `--device cuda`, and persists downloaded data in a _Modal Volume_.
 
 If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
+
+v4+ scripts save checkpoints so an interrupted run can pick up where it left off:
+
+- **Where and when.** Every 5 epochs by default, and after the last epoch, to `checkpoints/<script>-<dataset>-seed<N>-<hash>/`. Pass `--checkpoint-every N` to save every N epochs, or `--checkpoint-every 0` to stop saving them. The hash covers every argument that changes the weights.
+- **Resuming.** After any interruption (a crash, Ctrl-C, a preemption), run the same command again. It restores the model, the optimizer and all random number generators from the latest checkpoint. On Modal, checkpoints live on their own Volume and Modal re-runs the command itself, so a preempted job picks up where it left off.
+- **Extending a run.** `--epochs` is not part of the hash, so a finished run can be extended by re-running it with a larger `--epochs`. The learning rate is constant, so the result is the same as a single longer run.
+- **Exactness.** A resumed run matches an uninterrupted one exactly on CPU (`tests/test_checkpoint.py`). On GPU, v4 and v9 also reproduce exactly, but v7 and v8 drift in the third or fourth decimal of the loss from run to run, with or without resuming, because some operation in them is not deterministic on CUDA.
+- **Changing code.** The hash covers arguments, not code. After changing a training script, delete its run directory (or pass a new `--checkpoint-dir`) so the run starts fresh.
 
 You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run.
 

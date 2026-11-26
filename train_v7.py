@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 import torch
 from torch.optim import Adam
 
-from sasrec import get_git_sha, set_seed
+from sasrec import checkpoint, get_git_sha, set_seed
 from sasrec.dataset import load_data, load_item_titles, sample_batch
 from sasrec.evaluate import demo, evaluate
 from sasrec.model import SASRec
@@ -76,6 +76,12 @@ def main():
     parser.add_argument("--eval-every", type=int, default=10, help="Evaluate every N epochs")
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument(
+        "--checkpoint-dir", type=str, default="checkpoints", help="Root directory for resumable checkpoints"
+    )
+    parser.add_argument(
+        "--checkpoint-every", type=int, default=5, help="Save a checkpoint every N epochs (0 to disable)"
+    )
     args = parser.parse_args()
     print(f"\n{'=' * 60}")
     print(f"  {parser.description} (git: {get_git_sha()})")
@@ -131,8 +137,13 @@ def main():
     batches_per_epoch = num_users // args.batch_size
     print("Estimate batches per epoch:", batches_per_epoch)
 
+    # Resume from this run's latest checkpoint, if there is one (e.g. after Modal preempts the container).
+    # Same arguments -> same run directory, so re-running the same command continues where it left off.
+    run_checkpoint_dir = checkpoint.run_dir(args.checkpoint_dir, parser.prog, args)
+    start_epoch = checkpoint.resume(run_checkpoint_dir, model, optimizer)
+
     # Training loop
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         # enter train mode for model to update model params
         model.train()
         # initialize epoch loss to log every iteration
@@ -247,6 +258,10 @@ def main():
                 f"[{ts}] [Epoch {epoch + 1}/{args.epochs}] "
                 f"Avg loss: {avg_loss:.4f} (~{math.exp(-avg_loss):.1%} correct)"
             )
+
+        # save everything needed to resume from here, including the RNG states
+        if args.checkpoint_every and ((epoch + 1) % args.checkpoint_every == 0 or (epoch + 1) == args.epochs):
+            checkpoint.save(run_checkpoint_dir, epoch + 1, model, optimizer, args)
 
     # test set evaluation
     model.eval()

@@ -163,7 +163,11 @@ uv run ruff check .
 uv run pytest
 ```
 
-The tests are deliberately few. They cover the protocol decisions that published comparisons depend on (the leave-one-out split with its tie-break, and full-catalog ranking with history masking) and that a resumed run matches an uninterrupted one.
+The tests are small and run on CPU in a few seconds, using tiny synthetic data. GitHub Actions runs the same commands on every pull request. They check:
+- **The protocol** that published comparisons depend on: the leave-one-out split with its tie-break, and full-catalog ranking with history masking.
+- **The models:** each one returns a vector per position and can't see future items (causal masking), and the relative bias buckets match what the docs describe.
+- **Training batches:** targets are the inputs shifted by one, short histories are padded on the left, and negatives never include an item the user has seen.
+- **The scripts:** v1-v3 train and evaluate end to end, and every v4+ script resumes from a checkpoint to exactly the same weights as an uninterrupted run.
 
 ## Remote GPU Training
 

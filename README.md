@@ -47,7 +47,7 @@ Model top-3:
 |------|-------------|---------|-------------|
 | `train_v1.py` | Vanilla SASRec + BCE loss | ML-1M | BCE overconfidence problem |
 | `train_v2.py` | Sampled softmax loss | ML-1M | Competition between candidates fixes ranking |
-| `train_v3.py` | gBCE loss + calibration | ML-1M | Calibrated probabilities, but sampled softmax ranks better |
+| `train_v3.py` | gBCE loss + calibration | ML-1M | Calibration needs 2× the epochs; sampled softmax still ranks better |
 | `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +12% NDCG |
 | `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, with diminishing returns |
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero matches 16 blocks without |

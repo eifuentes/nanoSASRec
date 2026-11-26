@@ -27,7 +27,7 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 | 2.0 | 14% | Learning real patterns |
 | 1.0 | 37% | Strong preferences |
 
-**Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives you 50/50, which maps to a loss of -log(0.5) ≈ 0.69. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things.
+**Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives you 50/50, which maps to a loss of -log(0.5) ≈ 0.69. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things. v3 averages the loss over the positive and its 256 negatives, so its values are much smaller (around 0.006).
 
 **Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test then use the same yardstick. On ML-20M, validation HR@10 still runs about 3 points above test, because the last item is consistently harder to predict than the second-to-last. The gap is steady across versions, so validation is a trustworthy signal for picking models and checkpoints.
 
@@ -187,13 +187,13 @@ Estimate batches per epoch: 47
 
 **Why shared negatives work:** Each user's 256 negatives are reused across all 199 positions in their sequence. This works because an unseen item is unseen at every position - there's no position-specific reason to sample different negatives. v2 runs in comparable time to v1 (~6-7 min) despite scoring 256× more candidates.
 
-**What's still wrong:** Sampled softmax with 256 negatives is better than BCE with 1, but it's still an approximation of full-catalog softmax (3,416 items). The model sees 256/3,416 ≈ 7.5% of the catalog per training step. And the Petrov & Macdonald research (2308.07192) showed that even sampled softmax exhibits some overconfidence - the predicted probabilities are still higher than the true item relevance probabilities. v3's gBCE solves this more elegantly: it goes back to BCE's simplicity but fixes the overconfidence directly by reweighting the positive/negative contributions to match the true catalog ratio. The punchline - gBCE with just 1 negative matches or beats SSM with 256 negatives, at the same training cost as v1.
+**What's still wrong:** Sampled softmax with 256 negatives is better than BCE with 1, but it's still an approximation of full-catalog softmax (3,416 items). The model sees 256/3,416 ≈ 7.5% of the catalog per training step. And the Petrov & Macdonald research (2308.07192) showed that even sampled softmax exhibits some overconfidence - the predicted probabilities are still higher than the true item relevance probabilities. v3's gBCE takes a different route: it goes back to BCE and corrects the overconfidence directly, by shrinking the positive term according to how few negatives were sampled.
 
 ## v3: Generalized BCE Loss
 
 ### Run
 
-`uv run python train_v3.py --device mps --epochs 200 --eval-every 20`
+`uv run python train_v3.py --device mps --epochs 400 --eval-every 20`
 
 ### Output
 
@@ -203,64 +203,85 @@ Number Items: 3,416
 Dataset Lengths: 6040 6040 6040
 Model parameters: 211,500
 Estimate batches per epoch: 47
-[13:56:51] [Epoch 1/200] Avg loss: 2.5824 | Avg P(pos): 0.5341
-[13:56:53] [Epoch 2/200] Avg loss: 1.7652 | Avg P(pos): 0.5951
-[13:56:55] [Epoch 3/200] Avg loss: 1.2478 | Avg P(pos): 0.6069
-[13:56:56] [Epoch 4/200] Avg loss: 0.9600 | Avg P(pos): 0.6135
-[13:56:58] [Epoch 5/200] Avg loss: 0.8024 | Avg P(pos): 0.6183
-[13:57:00] [Epoch 6/200] Avg loss: 0.7115 | Avg P(pos): 0.6228
-[13:57:02] [Epoch 7/200] Avg loss: 0.6615 | Avg P(pos): 0.6238
-[13:57:04] [Epoch 8/200] Avg loss: 0.6317 | Avg P(pos): 0.6254
-[13:57:06] [Epoch 9/200] Avg loss: 0.6145 | Avg P(pos): 0.6248
-[13:57:07] [Epoch 10/200] Avg loss: 0.5944 | Avg P(pos): 0.6262
-[13:57:09] [Epoch 11/200] Avg loss: 0.5846 | Avg P(pos): 0.6215
-[13:57:11] [Epoch 12/200] Avg loss: 0.5711 | Avg P(pos): 0.6207
-[13:57:13] [Epoch 13/200] Avg loss: 0.5625 | Avg P(pos): 0.6182
-[13:57:15] [Epoch 14/200] Avg loss: 0.5546 | Avg P(pos): 0.6144
-[13:57:17] [Epoch 15/200] Avg loss: 0.5443 | Avg P(pos): 0.6139
-[13:57:19] [Epoch 16/200] Avg loss: 0.5357 | Avg P(pos): 0.6145
-[13:57:21] [Epoch 17/200] Avg loss: 0.5311 | Avg P(pos): 0.6144
-[13:57:23] [Epoch 18/200] Avg loss: 0.5224 | Avg P(pos): 0.6179
-[13:57:25] [Epoch 19/200] Avg loss: 0.5197 | Avg P(pos): 0.6178
-[13:57:35] [Epoch 20/200] Avg loss: 0.5169 | Avg P(pos): 0.6195 | HR@10: 0.4391 NDCG@10: 0.2410
-[13:58:19] [Epoch 40/200] Avg loss: 0.4773 | Avg P(pos): 0.6448 | HR@10: 0.4623 NDCG@10: 0.2557
-[13:59:03] [Epoch 60/200] Avg loss: 0.4228 | Avg P(pos): 0.6717 | HR@10: 0.5616 NDCG@10: 0.3209
-[13:59:47] [Epoch 80/200] Avg loss: 0.3787 | Avg P(pos): 0.6594 | HR@10: 0.6513 NDCG@10: 0.3895
-[14:00:31] [Epoch 100/200] Avg loss: 0.3452 | Avg P(pos): 0.6703 | HR@10: 0.7048 NDCG@10: 0.4339
-[14:01:17] [Epoch 120/200] Avg loss: 0.3219 | Avg P(pos): 0.6806 | HR@10: 0.7439 NDCG@10: 0.4697
-[14:02:02] [Epoch 140/200] Avg loss: 0.3041 | Avg P(pos): 0.6968 | HR@10: 0.7641 NDCG@10: 0.4890
-[14:02:48] [Epoch 160/200] Avg loss: 0.2957 | Avg P(pos): 0.7060 | HR@10: 0.7720 NDCG@10: 0.5051
-[14:03:36] [Epoch 180/200] Avg loss: 0.2861 | Avg P(pos): 0.7138 | HR@10: 0.7844 NDCG@10: 0.5205
-[14:04:25] [Epoch 200/200] Avg loss: 0.2776 | Avg P(pos): 0.7325 | HR@10: 0.7932 NDCG@10: 0.5309
-[14:04:34] [Epochs 200] Test metrics: HR@10: 0.7603 NDCG@10: 0.5055
+[05:12:34] [Epoch 1/400] Avg loss: 2.4040 | Avg P(pos): 0.4965
+[05:12:36] [Epoch 2/400] Avg loss: 1.3705 | Avg P(pos): 0.4623
+[05:12:39] [Epoch 3/400] Avg loss: 0.7902 | Avg P(pos): 0.4124
+[05:12:41] [Epoch 4/400] Avg loss: 0.4670 | Avg P(pos): 0.3651
+[05:12:44] [Epoch 5/400] Avg loss: 0.2810 | Avg P(pos): 0.3302
+[05:12:47] [Epoch 6/400] Avg loss: 0.1705 | Avg P(pos): 0.3018
+[05:12:50] [Epoch 7/400] Avg loss: 0.1009 | Avg P(pos): 0.2830
+[05:12:53] [Epoch 8/400] Avg loss: 0.0566 | Avg P(pos): 0.2741
+[05:12:55] [Epoch 9/400] Avg loss: 0.0318 | Avg P(pos): 0.2655
+[05:12:58] [Epoch 10/400] Avg loss: 0.0196 | Avg P(pos): 0.2609
+[05:13:01] [Epoch 11/400] Avg loss: 0.0140 | Avg P(pos): 0.2643
+[05:13:04] [Epoch 12/400] Avg loss: 0.0116 | Avg P(pos): 0.2637
+[05:13:06] [Epoch 13/400] Avg loss: 0.0105 | Avg P(pos): 0.2639
+[05:13:09] [Epoch 14/400] Avg loss: 0.0100 | Avg P(pos): 0.2740
+[05:13:12] [Epoch 15/400] Avg loss: 0.0098 | Avg P(pos): 0.2753
+[05:13:15] [Epoch 16/400] Avg loss: 0.0096 | Avg P(pos): 0.2892
+[05:13:17] [Epoch 17/400] Avg loss: 0.0094 | Avg P(pos): 0.2894
+[05:13:20] [Epoch 18/400] Avg loss: 0.0093 | Avg P(pos): 0.3057
+[05:13:23] [Epoch 19/400] Avg loss: 0.0091 | Avg P(pos): 0.3189
+[05:13:36] [Epoch 20/400] Avg loss: 0.0090 | Avg P(pos): 0.3313 | HR@10: 0.4320 NDCG@10: 0.2343
+[05:14:45] [Epoch 40/400] Avg loss: 0.0082 | Avg P(pos): 0.4462 | HR@10: 0.4379 NDCG@10: 0.2388
+[05:15:53] [Epoch 60/400] Avg loss: 0.0082 | Avg P(pos): 0.4426 | HR@10: 0.4399 NDCG@10: 0.2419
+[05:16:56] [Epoch 80/400] Avg loss: 0.0081 | Avg P(pos): 0.4404 | HR@10: 0.4444 NDCG@10: 0.2474
+[05:18:04] [Epoch 100/400] Avg loss: 0.0079 | Avg P(pos): 0.3918 | HR@10: 0.4914 NDCG@10: 0.2824
+[05:19:07] [Epoch 120/400] Avg loss: 0.0077 | Avg P(pos): 0.3235 | HR@10: 0.5561 NDCG@10: 0.3258
+[05:20:15] [Epoch 140/400] Avg loss: 0.0075 | Avg P(pos): 0.3237 | HR@10: 0.6071 NDCG@10: 0.3629
+[05:21:25] [Epoch 160/400] Avg loss: 0.0073 | Avg P(pos): 0.3891 | HR@10: 0.6354 NDCG@10: 0.3887
+[05:22:33] [Epoch 180/400] Avg loss: 0.0072 | Avg P(pos): 0.4355 | HR@10: 0.6629 NDCG@10: 0.4217
+[05:23:40] [Epoch 200/400] Avg loss: 0.0070 | Avg P(pos): 0.4540 | HR@10: 0.6935 NDCG@10: 0.4471
+[05:24:22] [Epoch 220/400] Avg loss: 0.0069 | Avg P(pos): 0.4659 | HR@10: 0.7061 NDCG@10: 0.4644
+[05:25:05] [Epoch 240/400] Avg loss: 0.0068 | Avg P(pos): 0.4695 | HR@10: 0.7243 NDCG@10: 0.4842
+[05:25:48] [Epoch 260/400] Avg loss: 0.0067 | Avg P(pos): 0.4770 | HR@10: 0.7407 NDCG@10: 0.5022
+[05:26:30] [Epoch 280/400] Avg loss: 0.0066 | Avg P(pos): 0.4857 | HR@10: 0.7488 NDCG@10: 0.5121
+[05:27:13] [Epoch 300/400] Avg loss: 0.0065 | Avg P(pos): 0.4665 | HR@10: 0.7573 NDCG@10: 0.5230
+[05:27:56] [Epoch 320/400] Avg loss: 0.0065 | Avg P(pos): 0.4749 | HR@10: 0.7618 NDCG@10: 0.5290
+[05:28:38] [Epoch 340/400] Avg loss: 0.0064 | Avg P(pos): 0.4861 | HR@10: 0.7685 NDCG@10: 0.5332
+[05:29:21] [Epoch 360/400] Avg loss: 0.0064 | Avg P(pos): 0.4771 | HR@10: 0.7752 NDCG@10: 0.5406
+[05:30:03] [Epoch 380/400] Avg loss: 0.0063 | Avg P(pos): 0.4735 | HR@10: 0.7732 NDCG@10: 0.5448
+[05:30:46] [Epoch 400/400] Avg loss: 0.0063 | Avg P(pos): 0.4734 | HR@10: 0.7790 NDCG@10: 0.5498
+[05:30:54] [Epochs 400] Test metrics: HR@10: 0.7596 NDCG@10: 0.5318
 
   Prediction demo (user 1):
     Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
     Ground truth:    Pocahontas (1995)
     Model top-10:
        1. Lion King, The (1994)
-       2. Nightmare Before Christmas, The (1993)
-       3. Mask, The (1994)
-       4. Babe (1995)
-       5. Fantasia (1940)
-       6. Groundhog Day (1993)
-       7. Jungle Book, The (1967)
-       8. Men in Black (1997)
-       9. Anastasia (1997)
-      10. South Park: Bigger, Longer and Uncut (1999)
+       2. Little Mermaid, The (1989)
+       3. Lady and the Tramp (1955)
+       4. Peter Pan (1953)
+       5. Jungle Book, The (1967)
+       6. Anastasia (1997)
+       7. Sleeping Beauty (1959)
+       8. Fantasia (1940)
+       9. 101 Dalmatians (1961)
+      10. Pocahontas (1995) <- hit
 ```
 
 ### Takeaway
 
-**What we changed:** Only the loss function, again. The model architecture is identical to v1 and v2. The diff from v2 is in the loss computation: sampled softmax is replaced with generalized binary cross-entropy (gBCE), which goes back to BCE's independent per-item scoring but adds a calibration parameter `t` that downweights the positive signal to correct for undersampling negatives relative to the full catalog.
+**What we changed:** Only the loss function, again. The model architecture is identical to v1 and v2, and v3 samples 256 negatives per user the same way v2 does. The diff from v2 is the loss: sampled softmax is replaced with generalized binary cross-entropy (gBCE). gBCE goes back to BCE's independent yes/no question for each item, then corrects BCE's overconfidence with one calibration parameter, `t`.
 
-**What gBCE does differently:** Standard BCE with negative sampling sees a 1:1 positive-to-negative ratio in training, but the real catalog ratio is 1:3,415. The model learns that items are far more likely to be relevant than they actually are. gBCE introduces `t` (0 < t < 1) that scales the positive loss term: `loss = t * (-log(P_pos)) + (1-t) * (-log(1-P_neg))`. This dampens the "push toward 1" gradient while keeping the positive and negative terms balanced, preventing the model from becoming overconfident without starving it of learning signal.
+**What gBCE does differently:** With 256 sampled negatives, the model sees only α = 256/3,415 ≈ 7.5% of the items it should be ranked against. BCE trained this way learns probabilities that are far too high: it has no idea how many other items it never saw. gBCE fixes this by raising the positive's predicted probability to a power β, which is the same as multiplying the positive term by β: `-log(P^β) = β · -log(P)`. β comes from `t` and the sampling rate: `β = α · (t · (1 - 1/α) + 1/α)`. With `t = 0`, β = 1 and gBCE is plain BCE. With `t = 1`, β = α and the correction is complete. The paper's default, `t = 0.75`, gives β ≈ 0.31 here. As in the paper's reference code, the loss is the average of the positive term and the 256 negative terms.
 
-**P(pos) tells the story:** v1's P(pos) climbed to 0.999, making the top 25 items indistinguishable. v3's P(pos) stabilized around 0.73, well below the overconfidence zone but high enough that the model is still learning meaningful preferences. This is the calibration the paper proved theoretically (Theorem 5.1, Petrov & Macdonald 2308.07192): with the right `t`, the predicted probabilities reflect actual item relevance rather than training artifact.
+**gBCE needs more epochs.** v1, v2 and v4 train for 200 epochs. v3 trains for 400, because at 200 it is still far from done:
 
-**The interaction between `t` and `num_negatives`:** We ran v3 twice. With 1 negative and `t=0.5`, the model barely learned (HR@10 = 0.44, worse than v1). The positive signal was dampened too aggressively with too little negative information to compensate. With 256 negatives and `t=0.5`, the model matched v2's HR@10 (0.79) while maintaining calibrated probabilities. The lesson: `t` and `num_negatives` are not independent knobs. Fewer negatives need less dampening (higher `t`), more negatives can tolerate stronger dampening (lower `t`). The paper's formula `t = 1/(1 + num_negs * (num_items-1)/num_items)` captures this relationship precisely.
+| Loss (ML-1M, 256 negatives) | Epochs | Val HR@10 | Val NDCG@10 | Test HR@10 | Test NDCG@10 |
+|-----------------------------|--------|-----------|-------------|------------|--------------|
+| v2: sampled softmax | 200 | 0.7922 | 0.5699 | 0.7672 | 0.5471 |
+| plain BCE (`t = 0`, β = 1) | 200 | 0.7270 | 0.4816 | 0.6959 | 0.4586 |
+| gBCE (`t = 0.75`, β ≈ 0.31) | 200 | 0.6944 | 0.4485 | 0.6704 | 0.4285 |
+| **v3: gBCE (`t = 0.75`)** | **400** | **0.7790** | **0.5498** | **0.7596** | **0.5318** |
 
-**Why NDCG was lower than v2:** v3's NDCG@10 (0.53) came in below v2's (0.57) despite matching on HR. gBCE's calibrated probabilities spread scores more evenly, which helps avoid overconfidence but doesn't force the hard competition that softmax creates. Sampled softmax explicitly makes items fight for probability mass, producing sharper separation at the top of the ranking. gBCE trades some ranking sharpness for better-calibrated probability estimates. Which matters more depends on the application: if you need probability estimates (e.g., multiplying P(purchase) by item price for revenue prediction), gBCE wins. If you only care about ranking, SSM's sharper top-K separation gives better NDCG.
+The positive is one term out of 257, so the negatives dominate the early gradient. With either BCE variant, validation HR@10 sits near 0.44 for about 80 epochs, which is roughly what recommending popular items gets you, before the model starts using the sequence. (v4's initialization shortens plateaus like this one.) Shrinking the positive term further with β < 1 slows learning again, so at 200 epochs gBCE is behind plain BCE. Given 400 epochs, gBCE reaches sampled softmax on HR@10 (0.7596 against 0.7672) but stays behind on NDCG@10 (0.5318 against 0.5471). The prediction demo shows the difference: at 200 epochs the top 10 is popular 1990s films; at 400 it is Disney animation, with the ground truth at rank 10.
+
+**`t` and the number of negatives work together.** α is the fraction of negatives sampled, so the size of the correction depends on both knobs. With all 3,415 negatives, α = 1 and β = 1 for any `t`: there is nothing to correct. With 256 negatives and `t = 0.75`, β ≈ 0.31. With a single negative, β ≈ 0.25. `num_negatives` sets how big the gap is; `t` sets how much of it to close.
+
+**What calibration buys, and what it doesn't.** gBCE's benefit is in the probability values themselves, which matter when you use a score as a probability, for example multiplying P(purchase) by price to estimate revenue. HR@10 and NDCG@10 only look at the order of the scores, so they can't show it. The `Avg P(pos)` column in the output doesn't show it either: it is the average predicted probability of the true next item during training, and it ends close for gBCE (0.45) and plain BCE (0.48) at 200 epochs. The paper measures calibration against the full catalog, which this repo doesn't compute.
+
+**Why NDCG trails sampled softmax:** gBCE scores each item independently. Sampled softmax makes the candidates compete for probability mass, which pushes the ground truth sharply above its neighbours and helps NDCG most. If you only care about ranking, sampled softmax is the better and faster choice. That is why v4+ use it.
 
 **What we learned about the loss function progression:** After three versions with identical architecture, the conclusion is clear: SASRec's performance issues were never about the architecture. v1's BCE overconfidence, v2's softmax fix, v3's calibration approach are all statements about how the training signal is shaped, not about how attention works. The architecture was fine from the start. This matches the central finding of the 2023 research: fix the loss, fix the model.
 

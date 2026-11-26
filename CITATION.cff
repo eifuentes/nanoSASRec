@@ -6,7 +6,7 @@ authors:
     given-names: "Emmanuel"
 type: software
 version: "0.3.0"
-date-released: "2026-06-25"
+date-released: "2026-11-26"
 url: "https://github.com/eifuentes/nanoSASRec"
 repository-code: "https://github.com/eifuentes/nanoSASRec"
 license: MIT

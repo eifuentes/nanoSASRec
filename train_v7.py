@@ -10,7 +10,8 @@ Adds temporal bias from interaction timestamps, the time delta between
 each pair of interactions is log-bucketed and looked up as a separate
 learned bias, additive with positional bias. The Scaling New Frontiers
 ablation (Table 3) shows temporal bias is more important than positional
-bias for sequential recommendation.
+bias for sequential recommendation. Each bias has its own switch
+(--no-position-bias, --no-time-bias) so the two can be compared here too.
 
 Distances are log-bucketed: fine-grained for recent items (0-15 steps/seconds),
 coarse for distant items. 32 buckets each, shared across all attention blocks.
@@ -63,11 +64,18 @@ def main():
         default=True,
         help="ReZero residual scaling (disable with --no-scale-res)",
     )
+    # With both biases off, the model falls back to absolute position embeddings (v6)
     parser.add_argument(
-        "--rel-bias",
+        "--position-bias",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Relative position and temporal bias (disable with --no-rel-bias)",
+        help="Relative position bias (disable with --no-position-bias)",
+    )
+    parser.add_argument(
+        "--time-bias",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Relative temporal bias (disable with --no-time-bias)",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs for training")
@@ -125,7 +133,8 @@ def main():
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
         scale_residual=args.scale_res,
-        relative_bias=args.rel_bias,
+        position_bias=args.position_bias,
+        time_bias=args.time_bias,
     )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")

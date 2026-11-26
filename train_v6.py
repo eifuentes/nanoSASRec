@@ -2,12 +2,11 @@
 train_v6.py - SASRec + ReZero residual scaling for depth
 
 Adds learnable residual scaling (ReZero) to make deeper models worthwhile.
-v5 showed 6 blocks barely beat 2 blocks (+1% NDCG for 2.5x compute).
+v5 showed depth helps, with diminishing returns.
 ReZero initializes each block as identity, letting the model learn
 how much each block should contribute to the residual stream.
 
-Run using the command: `uv run python train_v6.py --dataset ml-20m --blocks 6 --dim 64 --epochs 50 --eval-every 10`
-Be sure to specify the device you want to run on using the --device argument.
+Run: `uv run python train_v6.py --device cuda`
 
 References:
     - Kang & McAuley, 2018 (arxiv: 1808.09781) - SASRec architecture

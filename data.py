@@ -2,8 +2,9 @@
 nanoSASRec data preprocessing.
 
 Downloads and preprocesses datasets for sequential recommendation.
-Each dataset follows the protocol of the papers we compare against, so
-our numbers are comparable with their published results.
+ML-20M follows the protocol of the papers we compare against (HSTU,
+eSASRec), so its numbers are comparable with theirs. ML-1M follows
+SASRec/BERT4Rec (5-core), which differs from HSTU's ML-1M.
 
 Shared protocol:
   - Treat ratings/reviews as implicit feedback (binary interaction)

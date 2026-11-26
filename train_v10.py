@@ -4,10 +4,12 @@ train_v10.py - HSTU with training alignment (temperature, L2 norm, collision mas
 Aligns training details with the Zhai et al. (2024) HSTU setup:
     - L2 normalize output and item embeddings (cosine similarity scoring)
     - Temperature scaling (0.05) sharpens the softmax distribution
-    - Collision masking prevents penalizing correct items sampled as negatives
+    - Collision masking (a no-op here: the sampler already skips the user's
+      history, so a negative never equals a target)
 
 The model architecture is unchanged from v9. These are training signal
-refinements used in the published HSTU benchmark setup.
+refinements used in the published HSTU benchmark setup, which also uses
+128 negatives (we use 512).
 
 Run: `uv run python train_v10.py --device cuda`
 

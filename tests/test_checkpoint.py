@@ -1,6 +1,5 @@
 """Tests that a resumed training run matches one that was never interrupted."""
 
-import json
 import random
 import runpy
 import sys
@@ -29,28 +28,6 @@ def test_resume_restores_every_rng_stream(tmp_path):
     random.random(), np.random.rand(), torch.rand(1)
     assert checkpoint.resume(str(tmp_path), model, optimizer) == 1
     assert (random.random(), np.random.rand(), torch.rand(1).item()) == expected
-
-
-@pytest.fixture
-def tiny_data_dir(tmp_path):
-    """A 16-user, 40-item split in the format data.py writes, with timestamps for v7+."""
-    rng = random.Random(0)
-    split = {key: {} for key in ("user_train", "user_valid", "user_test")}
-    split.update({f"{key}_timestamps": {} for key in ("user_train", "user_valid", "user_test")})
-    for user in range(1, 17):
-        items = rng.sample(range(1, 41), k=rng.randint(10, 14))
-        stamps = sorted(rng.sample(range(10_000), k=len(items)))
-        for key, sl in (
-            ("user_train", slice(None, -2)),
-            ("user_valid", slice(-2, -1)),
-            ("user_test", slice(-1, None)),
-        ):
-            split[key][str(user)] = items[sl]
-            split[f"{key}_timestamps"][str(user)] = stamps[sl]
-    split.update(num_users=16, num_items=40, item_id_map={str(i): str(i) for i in range(1, 41)})
-    (tmp_path / "ml-1m").mkdir()
-    (tmp_path / "ml-1m" / "split.json").write_text(json.dumps(split))
-    return tmp_path
 
 
 def _train(script, data_dir, checkpoint_dir, epochs, eval_every, monkeypatch):

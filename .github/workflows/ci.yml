@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    # ready_for_review: a draft is skipped, then runs once it's marked ready
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Skip draft PRs to save CI time
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0 # setup-uv only publishes exact version tags
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      # Fails if pyproject.toml changed without re-running `uv lock`
+      - run: uv lock --check
+      # The dev group only; the cloud group (Modal) isn't needed to test
+      - run: uv sync --locked --group dev
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      # Everything runs on CPU with tiny synthetic data: no downloads, no GPU
+      - run: uv run pytest

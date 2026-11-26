@@ -435,8 +435,8 @@ Three things change from SASRec's Transformer block:
 | **v7 (+ relative bias)** | **0.3380 ± 0.0009** | **0.2025 ± 0.0011** |
 | v8 (HSTU) | 0.3236 | 0.1929 |
 | SASRec (Zhai et al., 2024) | 0.2889 | 0.1621 |
-| HSTU (Zhai et al., 2024) | 0.3273 | 0.1895 |
-| HSTU-large (Zhai et al., 2024) | 0.3556 | 0.2098 |
+| HSTU (Zhai et al., 2024, 4 blocks) | 0.3273 | 0.1895 |
+| HSTU-large (Zhai et al., 2024, 16 blocks) | 0.3556 | 0.2098 |
 | HSTU, recomputed (Tikhonovich et al., 2025) | 0.3464 | 0.2040 |
 | eSASRec, 8 blocks (Tikhonovich et al., 2025) | 0.3457 | 0.2107 |
 
@@ -463,7 +463,7 @@ So 50 epochs undertrains the SASRec line more than the HSTU line. We checked by 
 
 v8 still learns faster early on, but v5 catches up: v8's lead over the same-depth SASRec shrinks from 0.4 points to under 0.2. The order of the versions is the same at both budgets, and v9 keeps its 1.1-point lead over v8.
 
-**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3473 ± 0.0013 over three seeds, level with eSASRec (0.3457) and the recomputed HSTU (0.3464) and FuXi-α (0.3468): 0.1 to 0.2 points higher, about one standard deviation. On NDCG@10 (0.2098) it is 0.1 points below eSASRec and 0.6 above the recomputed HSTU. Giving v7 eSASRec's settings (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs narrow the gap for our HSTU but don't close it: at 100 epochs v9 (0.3426) is 0.4 points behind the recomputed HSTU, and v8 (0.3313) is 1.5 behind. Our HSTU also differs from the reference code in small ways: the reference divides the SiLU attention by sequence length, and its φ1 is SiLU on the projection of a layer-normed input rather than SwishLayerNorm. We haven't tested which of these matter. A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches eSASRec and the recomputed HSTU and FuXi-α on this split without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model and was evaluated on Zhai et al.'s reordered split.
+**How this compares with published numbers.** Our catalog now matches Zhai et al. (2024), but the tie order doesn't. Their preprocessing reorders interactions with tied timestamps, which changes about 25% of the test set (Tikhonovich et al., 2025). eSASRec re-ran HSTU's original code on the order-preserving split that `data.py` produces, so the recomputed rows are the fair reference. Against them, after 50 epochs, v7 is 0.8 points of HR@10 behind both eSASRec and the recomputed HSTU, while our v8 HSTU is 2.3 points behind the recomputed HSTU. eSASRec trains for up to 100 epochs, so the fair budget is 100, not 50. At 100 epochs v7 reaches 0.3473 ± 0.0013 over three seeds, level with eSASRec (0.3457) and the recomputed HSTU (0.3464) and FuXi-α (0.3468): 0.1 to 0.2 points higher, about one standard deviation. On NDCG@10 (0.2098) it is 0.1 points below eSASRec and 0.6 above the recomputed HSTU. Giving v7 eSASRec's settings (4× feed-forward, 16 heads, 256 negatives) does not help: 0.3476, with 30% more parameters and 1.8× the time per epoch. More epochs narrow the gap for our HSTU but don't close it: at 100 epochs v9 (0.3426) is 0.4 points behind the recomputed HSTU, and v8 (0.3313) is 1.5 behind. Our HSTU also differs from the reference code in small ways: the reference divides the SiLU attention by sequence length, and its φ1 is SiLU on the projection of a layer-normed input rather than SwishLayerNorm. We haven't tested which of these matter. A well-trained SASRec with ReZero and relative bias beats our own HSTU implementation and, given the same training budget, matches eSASRec and the recomputed HSTU and FuXi-α on this split without changing the attention mechanism. HSTU-large (0.3556) is higher, but it is a bigger model (16 blocks) and was evaluated on Zhai et al.'s reordered split.
 
 ## v9: φ1 SwishLayerNorm Pre-Activation
 
@@ -485,7 +485,7 @@ The result is that Q, K, V, U become nonlinear functions of the input before the
 |--------|--------|------------|--------------|
 | v8 (HSTU, separate projections) | 9.5M | 0.3236 | 0.1929 |
 | **v9 (HSTU, combined + φ1)** | **9.5M** | **0.3354 ± 0.0009** | **0.2008 ± <0.0001** |
-| HSTU (Zhai et al., 2024) | — | 0.3273 | 0.1895 |
+| HSTU (Zhai et al., 2024, 4 blocks) | — | 0.3273 | 0.1895 |
 | HSTU, recomputed (Tikhonovich et al., 2025) | — | 0.3464 | 0.2040 |
 
 **φ1 improved over v8 by +3.6% HR and +4.1% NDCG.** That recovers 82% of v8's gap to v7 and brings v9 within 1.1 points of HR@10 of the recomputed HSTU. v9 also learns fastest: at epoch 10 its validation HR@10 is 0.3356, against 0.3281 for v7, though v7 draws level by epoch 30 and passes it by epoch 40. But v7 SASRec+ReZero+relative bias (0.3380) still leads the repo, reinforcing that training and positional improvements matter more than the attention mechanism at this scale.

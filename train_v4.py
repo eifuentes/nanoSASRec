@@ -48,6 +48,13 @@ def main():
     )
     parser.add_argument("--blocks", type=int, default=2, help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=1, help="Number of attention heads")
+    parser.add_argument(
+        "--block-style",
+        type=str,
+        default="pre-ln",
+        choices=["pre-ln", "original"],
+        help="pre-ln: x + sublayer(LayerNorm(x)). original: the SASRec paper's code, residual from LayerNorm(x)",
+    )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
     parser.add_argument("--num-negatives", type=int, default=256, help="Number of negatives to sample for training")
@@ -95,6 +102,7 @@ def main():
         num_heads=args.heads,
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
+        block_style=args.block_style,
     )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")

@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from sasrec.model import HSTU, SASRec
-from sasrec.model.sasrec import bucket_relative_positions, bucket_temporal_distances
+from sasrec.model.sasrec import AttentionBlock, bucket_relative_positions, bucket_temporal_distances
 
 MAX_LEN = 9  # models see max_len - 1 = 8 positions
 SEQ_LEN = MAX_LEN - 1
@@ -21,6 +21,9 @@ MODELS = {
         num_heads=2,
         scale_residual=True,
         relative_bias=True,
+    ),
+    "sasrec_original_block": lambda: SASRec(
+        NUM_ITEMS, MAX_LEN, dropout_rate=0.0, embedding_dim=16, num_blocks=2, num_heads=2, block_style="original"
     ),
     "hstu": lambda: HSTU(NUM_ITEMS, MAX_LEN, dropout_rate=0.0, embedding_dim=16, num_blocks=2, num_heads=2),
 }
@@ -95,3 +98,32 @@ def test_time_buckets_cover_seconds_to_about_two_weeks():
     # The cap is set to 30 days, but rounding down means the last bucket starts at ~14.2 days
     assert buckets[-3] == 30
     assert buckets[-2] == buckets[-1] == 31
+
+
+@pytest.mark.parametrize("block_style", ["pre-ln", "original"])
+def test_where_the_residual_starts(block_style):
+    # ReZero scalars start at 0, which switches both sublayers off. What's left is the residual path:
+    # pre-LN passes x through untouched, the original SASRec block re-normalizes it at every block.
+    block = AttentionBlock(
+        dropout_rate=0.0, embedding_dim=16, num_heads=2, scale_residual=True, block_style=block_style
+    )
+    x = 3 * torch.randn(2, SEQ_LEN, 16) + 1
+    mask = torch.triu(torch.ones(SEQ_LEN, SEQ_LEN), diagonal=1).bool()
+    with torch.no_grad():
+        out = block(x, mask)
+    expected = x if block_style == "pre-ln" else block.norm_ffn(block.norm_attn(x))
+    assert torch.allclose(out, expected, atol=1e-6)
+
+
+def test_original_block_matches_the_sasrec_reference_code():
+    # The SASRec authors' block (kang205/SASRec model.py; RecTools' SASRecTransformerLayer), written out
+    torch.manual_seed(0)
+    block = AttentionBlock(dropout_rate=0.0, embedding_dim=16, num_heads=2, block_style="original")
+    x = torch.randn(2, SEQ_LEN, 16)
+    mask = torch.triu(torch.ones(SEQ_LEN, SEQ_LEN), diagonal=1).bool()
+    with torch.no_grad():
+        q = block.norm_attn(x)
+        h = q + block.attn(q, mask, kv=x)  # queries normalized, keys and values not
+        f = block.norm_ffn(h)
+        expected = f + block.ffn(f)
+        assert torch.allclose(block(x, mask), expected, atol=1e-6)

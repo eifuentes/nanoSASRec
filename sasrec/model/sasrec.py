@@ -155,13 +155,21 @@ class SelfAttention(nn.Module):
         # add attention dropout
         self.attn_dropout = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
+        kv: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Scaled Dot-Product Self-Attention.
 
         Args:
             x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
             mask (torch.Tensor): mask to preserve causal nature of attention scores
             bias (torch.Tensor, optional): relative bias of size(1, num_heads, seq_len, seq_len)
+            kv (torch.Tensor, optional): input for keys and values if it differs from the queries' input x
+                (the original SASRec block normalizes only the queries). Defaults to x.
 
         Returns:
             torch.Tensor: attended input tensor of size(batch_size, seq_len, embedding_dim)
@@ -182,7 +190,8 @@ class SelfAttention(nn.Module):
         )  # (batch_size, num_heads, seq_len, head_dim)
 
         # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
-        key = self.key_proj(x)  # (batch_size, seq_len, embedding_dim)
+        kv = x if kv is None else kv
+        key = self.key_proj(kv)  # (batch_size, seq_len, embedding_dim)
         key = key.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
@@ -190,7 +199,7 @@ class SelfAttention(nn.Module):
         key = key.transpose(-2, -1)  # (batch_size, num_heads, head_dim, seq_len)
 
         # value linear layer transforms each position into "this is the information I pass along when attended to?"
-        value = self.value_proj(x)  # (batch_size, seq_len, embedding_dim)
+        value = self.value_proj(kv)  # (batch_size, seq_len, embedding_dim)
         value = value.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
@@ -245,9 +254,16 @@ class AttentionBlock(nn.Module):
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
+        block_style: Literal["pre-ln", "original"] = "pre-ln",
     ):
 
         super().__init__()
+
+        # "pre-ln" is the standard pre-LayerNorm block: x + sublayer(LayerNorm(x)).
+        # "original" is the block from the SASRec paper's code (kang205/SASRec, also RecTools' port):
+        # the residual starts from LayerNorm(x) instead of x, and only the attention queries are
+        # normalized, not the keys and values. Everything else (dropout, init) is the same.
+        self.block_style = block_style
 
         # determine feed-forward network arguments
         ffn_hidden_dim = ffn_dim or embedding_dim
@@ -276,29 +292,31 @@ class AttentionBlock(nn.Module):
         self.dropout_ffn = nn.Dropout(p=dropout_rate)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
+        original = self.block_style == "original"
         # forward attention (with relative position and/or temporal bias if provided)
-        y = self.norm_attn(x)
-        if bias is not None:
-            y = self.attn(y, mask=mask, bias=bias)
-        else:
-            y = self.attn(y, mask=mask)
+        normed = self.norm_attn(x)
+        # the original block takes keys and values from the un-normalized x
+        y = self.attn(normed, mask=mask, bias=bias, kv=x if original else None)
         # apply attention dropout
         y = self.dropout_attn(y)
-        # residual connection: add original input back so gradients
-        # can flow without having to go through attention
+        # residual connection: add the input back so gradients can flow without going through attention.
+        # pre-LN adds back x itself, so the residual stream is never normalized inside the stack.
+        # The original adds back LayerNorm(x), so the stream is re-normalized at every block.
+        residual = normed if original else x
         if self.scale_residual:
-            x = x + (self.residual_scalar_attn * y)
+            x = residual + (self.residual_scalar_attn * y)
         else:
-            x = x + y
+            x = residual + y
         # forward feed forward network with norm and dropout
-        y = self.norm_ffn(x)
-        y = self.ffn(y)
+        normed = self.norm_ffn(x)
+        y = self.ffn(normed)
         y = self.dropout_ffn(y)
         # residual connections
+        residual = normed if original else x
         if self.scale_residual:
-            x = x + (self.residual_scalar_ffn * y)
+            x = residual + (self.residual_scalar_ffn * y)
         else:
-            x = x + y
+            x = residual + y
         return x
 
 
@@ -316,6 +334,7 @@ class SASRec(nn.Module):
         scale_residual: bool = False,
         relative_bias: bool = False,
         num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
+        block_style: Literal["pre-ln", "original"] = "pre-ln",
     ):
 
         super().__init__()
@@ -355,6 +374,7 @@ class SASRec(nn.Module):
                     ffn_dim=ffn_dim,
                     ffn_activation=ffn_activation,
                     scale_residual=scale_residual,
+                    block_style=block_style,
                 )
                 for _ in range(num_blocks)
             ]

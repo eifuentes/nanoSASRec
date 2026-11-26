@@ -214,8 +214,8 @@ def reindex_and_split(interactions: list) -> DatasetSplit:
       num_users:  int
       num_items:  int
     """
-    # sort by (user, timestamp) to get temporal order
-    # NOTE: ensures each users history is sorted from oldest to newest
+    # sort each user's history from oldest to newest. Python's sort is stable, so
+    # interactions with the same timestamp keep their file order (see "ml-20m" below).
     interactions.sort(key=lambda x: (x[0], x[2]))
 
     # build sequences per user (preserving temporal order)

@@ -24,7 +24,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20  # --device cuda
 ```
 
-Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Reproduce the Zhai et al. (2024) HSTU MovieLens 20M benchmark in ~4 hours on a single A100.
+Train v1 on MovieLens 1M in ~7 minutes on a MacBook. From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. Each ML-20M version trains in about 3 to 4 hours for 50 epochs on one A10 GPU.
 
 ## What to expect
 
@@ -47,9 +47,9 @@ Model top-3:
 |------|-------------|---------|-------------|
 | `train_v1.py` | Vanilla SASRec + BCE loss | ML-1M | BCE overconfidence problem |
 | `train_v2.py` | Sampled softmax loss | ML-1M | Competition between candidates fixes ranking |
-| `train_v3.py` | gBCE loss + calibration | ML-1M | Calibrated probabilities, but SSM ranks better |
-| `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +14% NDCG |
-| `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, diminishing returns after 8 |
+| `train_v3.py` | gBCE loss + calibration | ML-1M | Calibrated probabilities, but sampled softmax ranks better |
+| `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +12% NDCG |
+| `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off, with diminishing returns |
 | `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero matches 16 blocks without |
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
@@ -67,13 +67,13 @@ Each version is runnable independently. Read v1-v10 in order for the full progre
 | ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
 | ML-20M | Benchmark target | 138,493 | 26,744 | 144.4 | v5-v10 |
 
-ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering, so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` verifies each download against the MD5 GroupLens publishes, checks the processed statistics against the published numbers, and writes a `metadata.json` next to `split.json` that records the source and protocol. Up to v0.2.1, nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
+ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering, so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` verifies each download against the MD5 GroupLens publishes, checks the processed statistics against the published numbers, and writes a `metadata.json` next to `split.json` that records the source and protocol. Up to v0.2.1 (the previous release), nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
 
 From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled validation (100 negatives) because they teach loss functions.
 
 ## Benchmarks
 
-Full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs, one A10 GPU). Every model ranks the ground truth against all 26,744 items, not a sampled subset. v7 and v9 are the mean ± standard deviation over seeds 42, 43 and 44. The other rows use seed 42.
+Full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs, one A10 GPU). Every model ranks the ground truth against all 26,744 items, not a sampled subset. v7 and v9 are the mean ± standard deviation over seeds 42, 43 and 44 (`--seed`). The other rows use seed 42. HR@10 and NDCG@10 are explained in [Reading the Metrics](CURRICULUM.md#reading-the-metrics).
 
 | Version | What changed | HR@10 | NDCG@10 |
 |---------|-------------|-------|---------|
@@ -84,7 +84,7 @@ Full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs, one A10 GPU). Ev
 | v6 (8 blocks) | + ReZero | 0.3287 | 0.1973 |
 | **v7 (8 blocks)** | **+ relative bias** | **0.3380 ± 0.0009** | **0.2025 ± 0.0011** |
 | v8 (8 blocks) | HSTU architecture | 0.3236 | 0.1929 |
-| v9 (8 blocks) | + φ1 pre-activation | 0.3354 ± 0.0009 | 0.2008 ± 0.0000 |
+| v9 (8 blocks) | + φ1 pre-activation | 0.3354 ± 0.0009 | 0.2008 ± <0.0001 |
 | v10 (8 blocks) | + temp + L2 + collision | 0.3269 | 0.1949 |
 
 Seed-to-seed spread is about 0.1 points of HR@10, well below the gaps between versions. v0.2.1 reported these versions on the item 5-core ML-20M (18,345 items). Those numbers were 0.4 to 1.0 points of HR@10 higher, because the smaller catalog makes ranking easier, but the 8-block versions ranked in the same order (v7 > v9 > v6 > v10 > v8 > v5).
@@ -100,9 +100,27 @@ Published results on the full 26,744-item ML-20M catalog:
 | Tikhonovich et al. (2025) | eSASRec (8 blocks) | 0.3457 | 0.2107 |
 | Tikhonovich et al. (2025) | HSTU, recomputed (8 blocks) | 0.3464 | 0.2040 |
 
-eSASRec's numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU row is HSTU's original code re-run on the same order-preserving split that `data.py` produces.
+eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU row is HSTU's original code re-run on the same order-preserving split that `data.py` produces.
 
-The eSASRec rows are the closest comparison because they use the same split. At 8 blocks, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8. One known difference is that nanoSASRec does not yet handle long sequences the way the reference training does (see Stochastic Length training in the [Roadmap](#roadmap)). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+The eSASRec rows are the closest comparison because they use the same split and the same evaluation: full-catalog ranking with the user's earlier items masked. After 50 epochs, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU at 8 blocks. eSASRec trains for up to 100 epochs, though, and [Training longer](#training-longer) shows v7 passes both when given the same budget. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8 at 50 epochs. One known difference is that nanoSASRec does not yet handle long sequences the way the reference training does (see Stochastic Length training in the [Roadmap](#roadmap)). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+
+### Training longer
+
+The 50-epoch table compares versions under one fixed budget. It is not where training stops: every version is still improving at epoch 50. Re-running four of them for 100 epochs (seed 42):
+
+| Version | HR@10, 50 epochs | HR@10, 100 epochs | NDCG@10, 100 epochs |
+|---------|------------------|-------------------|---------------------|
+| v5 (8 blocks) | 0.3196 | 0.3297 | 0.1976 |
+| **v7 (8 blocks)** | 0.3381 | **0.3483** | **0.2102** |
+| v7 with eSASRec's widths | | 0.3476 | 0.2091 |
+| v8 (8 blocks) | 0.3236 | 0.3313 | 0.1976 |
+
+- Every version gains 0.8 to 1.0 points of HR@10 from the extra 50 epochs.
+- At 100 epochs, v7 is above eSASRec (0.3457) and the recomputed HSTU (0.3464). The margin is 0.2 to 0.3 points, two to three times the seed-to-seed spread.
+- eSASRec's widths (4× feed-forward, 16 heads, 256 negatives) don't help v7. They add 30% more parameters and take 1.8× longer per epoch for the same accuracy.
+- v8's lead over v5 at the same depth shrinks from 0.4 to under 0.2 points. HSTU learns faster early on, but SASRec catches up.
+
+Each model is scored on test once, after its last epoch. Both v7 runs had their best validation HR@10 at the last epoch, so picking the checkpoint by validation would not change their numbers. v5 and v8 peaked on validation at epoch 90, within 0.2 points of their last epoch.
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

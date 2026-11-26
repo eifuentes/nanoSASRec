@@ -34,7 +34,7 @@ checkpoint_volume = modal.Volume.from_name("nanoSASRec-checkpoints", create_if_m
 @app.function(
     image=image,
     gpu="A10",
-    timeout=86400,  # 24 hours, Modal's max. 16-block ML-20M runs take ~6h on an A10. Billing is per second used.
+    timeout=86400,  # 24 hours
     volumes={"/app/data": data_volume, "/app/checkpoints": checkpoint_volume},
 )
 def train(cmd: str):

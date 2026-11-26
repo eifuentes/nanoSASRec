@@ -30,11 +30,11 @@ def test_resume_restores_every_rng_stream(tmp_path):
     assert (random.random(), np.random.rand(), torch.rand(1).item()) == expected
 
 
-def _train(script, data_dir, checkpoint_dir, epochs, eval_every, monkeypatch):
+def _train(script, data_dir, checkpoint_dir, epochs, eval_every, monkeypatch, extra=()):
     argv = [script, "--dataset", "ml-1m", "--data-dir", str(data_dir), "--device", "cpu"]
     argv += ["--dim", "16", "--blocks", "1", "--heads", "2", "--max-len", "8", "--batch-size", "4"]
     argv += ["--num-negatives", "4", "--epochs", str(epochs), "--eval-every", str(eval_every)]
-    argv += ["--checkpoint-dir", str(checkpoint_dir), "--checkpoint-every", "1"]
+    argv += ["--checkpoint-dir", str(checkpoint_dir), "--checkpoint-every", "1", *extra]
     monkeypatch.setattr(sys, "argv", argv)
     runpy.run_path(str(REPO / script), run_name="__main__")
     (run,) = Path(checkpoint_dir).iterdir()  # one run directory per command
@@ -58,3 +58,20 @@ def test_resumed_run_matches_uninterrupted_run(script, tiny_data_dir, tmp_path, 
     for param_id, state in straight["optimizer"]["state"].items():
         for key, value in state.items():
             assert torch.equal(value, resumed["optimizer"]["state"][param_id][key]), (param_id, key)
+
+
+def test_deterministic_flag_resumes_the_same_run(tiny_data_dir, tmp_path, monkeypatch, capsys):
+    # --deterministic only fixes the GPU's summation order, so a run started without it
+    # can be resumed with it: same run directory, and on CPU the same weights.
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)  # undone after the test
+    straight = _train("train_v7.py", tiny_data_dir, tmp_path / "straight", 2, 2, monkeypatch)
+    _train("train_v7.py", tiny_data_dir, tmp_path / "resumed", 1, 1, monkeypatch)
+    capsys.readouterr()
+    try:
+        resumed = _train("train_v7.py", tiny_data_dir, tmp_path / "resumed", 2, 1, monkeypatch, ["--deterministic"])
+        assert torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.use_deterministic_algorithms(False)  # global setting: don't leak into other tests
+    assert "(1 epochs completed)" in capsys.readouterr().out
+    for name, weights in straight["model"].items():
+        assert torch.equal(weights, resumed["model"][name]), name

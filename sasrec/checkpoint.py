@@ -35,6 +35,8 @@ ARGS_EXCLUDED_FROM_RUN_HASH = (
     "topk",
     "checkpoint_dir",
     "checkpoint_every",
+    # same math, only a fixed summation order on GPU
+    "deterministic",
 )
 
 

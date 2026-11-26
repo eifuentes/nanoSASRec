@@ -300,6 +300,11 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="Device to run computation")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Exact run-to-run results on the same GPU model, about 20%% slower (see README)",
+    )
+    parser.add_argument(
         "--checkpoint-dir", type=str, default="checkpoints", help="Root directory for resumable checkpoints"
     )
     parser.add_argument(
@@ -314,7 +319,7 @@ def main():
     print(f"{'=' * 60}\n")
 
     # set seed across python, numpy, and torch
-    set_seed(args.seed)
+    set_seed(args.seed, deterministic=args.deterministic)
 
     # Determine device
     device = torch.device(args.device)

@@ -8,7 +8,7 @@ Each step comes with commands to reproduce the results. Change `--device` to `cp
 
 Here are known differences from the original SASRec implementation.
 
-- **Pre-LN normalization** (norm before attention/FFN). The original SASRec uses Post-LN (norm after residual add). Pre-LN is more stable for deeper models (Xiong et al. ICML 2020) and is what all modern implementations use, including HSTU and PinnerFormer.
+- **Pre-LN block wiring**, `x + sublayer(LayerNorm(x))`. This is the formula in the SASRec paper (Section III-C), but not what the authors' released code does. Their code adds the residual back from `LayerNorm(x)` instead of `x`, and normalizes only the attention queries, not the keys and values. The two wirings agree at 2 blocks and part ways with depth: see v4 and v5. Pre-LN is more stable for deeper models (Xiong et al. ICML 2020) and is what HSTU and PinnerFormer use.
 - **Weight initialization** uses truncated normal with `std=1/sqrt(d)` (matching Zhai et al. (2024)) instead of the original's Xavier uniform. Keeps initial dot products near zero for stable softmax in early training.
 - **Reversed positional embeddings** (Huang 2025, arxiv: 2504.09596). The original uses forward indexing; v4+ counts backward from the prediction position so the model learns "how far back" rather than "what absolute slot."
 
@@ -322,6 +322,29 @@ For reference, Zhai et al. (2024) report SASRec on ML-1M at HR@10 0.2853 and NDC
 - **Registered causal mask buffer** avoids recreating the attention mask every forward pass.
 - **Configurable FFN** activation and hidden dimension for experimentation.
 
+**One more detail, kept from v1: how each block is wired.** Every version uses pre-LN blocks. Each sublayer (attention, then the feed-forward network) reads `LayerNorm(x)`, and its output is added back onto `x` itself. That is the formula in the SASRec paper, but the authors' released code ([kang205/SASRec](https://github.com/kang205/SASRec)) wires it differently in two places, shown dotted below. RecTools ports that code, and eSASRec's SASRec baseline runs on that port.
+
+```mermaid
+flowchart LR
+  subgraph P["pre-LN: the paper's formula, and v1+"]
+    direction TB
+    px["x"] --> pln["LayerNorm"]
+    pln -->|"Q, K, V"| pattn["Attention"]
+    pattn --> padd(("+"))
+    px -->|"residual: x"| padd
+  end
+  subgraph O["the authors' released code"]
+    direction TB
+    ox["x"] --> oln["LayerNorm"]
+    oln -->|"Q"| oattn["Attention"]
+    ox -.->|"K, V: raw x"| oattn
+    oattn --> oadd(("+"))
+    oln -.->|"residual: LayerNorm(x)"| oadd
+  end
+```
+
+The diagram shows the attention half of a block; the feed-forward half repeats the same residual pattern. `train_v4.py --block-style` switches between them: `pre-ln` (the default), `original` (the authors' code), and `ln-residual` and `raw-kv`, which each make only one of the two changes. At v4's 2 blocks the choice hardly matters. It decides whether depth works at all, which v5 shows.
+
 **The lesson:** v1-v3 proved the loss function matters. v4 proves implementation details matter just as much: +7% HR and +12% NDCG on sampled validation from changes that didn't touch the loss or model capacity. D'Ercoli et al. 2025 documented 2-5% swings from these details individually; they compound.
 
 ## v5: Scaling to ML-20M
@@ -329,6 +352,8 @@ For reference, Zhai et al. (2024) report SASRec on ML-1M at HR@10 0.2853 and NDC
 ### Run
 
 `bash train_v5.sh cuda`
+
+`bash train_v5.sh cuda wiring` runs the block-wiring comparison below: the authors' block at 2, 4, 8 and 16 blocks (about 13 A10-hours), then four 3-epoch runs at 8 blocks (about 15 minutes each).
 
 ### Takeaway
 
@@ -346,6 +371,28 @@ For reference, Zhai et al. (2024) report SASRec on ML-1M at HR@10 0.2853 and NDC
 | 16 | 13.2M | 0.3280 | 0.1970 | ~419s |
 
 **Depth pays off.** Going from 2 to 16 blocks improves HR by +11.6% and NDCG by +15.0%. This is a clear, monotonic improvement across every depth we tested. Validation HR@10 was still rising at epoch 50 for every depth, so these runs are not fully converged.
+
+**Depth only pays off with pre-LN wiring.** Two papers report plain SASRec collapsing when it gets deep: Guo et al. (2024) from 4 blocks on ML-20M, and eSASRec (Tikhonovich et al., 2025), whose 8-layer SASRec baseline scores HR@10 0.0465. eSASRec's baseline runs on RecTools' port of the SASRec authors' released code, which is wired differently from ours (see v4). We don't know which code Guo et al. used. Running the same sweep with `--block-style original` reproduces the collapse:
+
+| Blocks | Pre-LN (v5) Test HR@10 | Pre-LN NDCG@10 | Authors' code Test HR@10 | Authors' code NDCG@10 |
+|--------|------------|--------------|------------|--------------|
+| 2 | 0.2938 | 0.1713 | 0.3015 | 0.1761 |
+| 4 | 0.3098 | 0.1830 | 0.3093 | 0.1823 |
+| 8 | 0.3196 | 0.1912 | **0.0446** | **0.0224** |
+| 16 | 0.3280 | 0.1970 | **0.0451** | **0.0221** |
+
+At 2 blocks the authors' wiring is slightly ahead, at 4 they tie, and from 8 blocks it never learns. Its training loss sits at about 3.73 from the first epoch to the last, while pre-LN is at 2.03 after 3 epochs. Validation tells the same story. Its 8-block HR@10 (0.0446) lands next to eSASRec's 0.0465, so the collapse those papers report comes from the block wiring, not from SASRec itself ([#32](https://github.com/eifuentes/nanoSASRec/issues/32)).
+
+**Either change alone is enough to collapse.** Because the collapse shows from the first epoch, 3 epochs at 8 blocks are enough to test each change on its own:
+
+| 8 blocks, after 3 epochs | Training loss | Val HR@10 |
+|--------------------------|---------------|-----------|
+| Pre-LN | 2.03 | 0.2247 |
+| Residual from `LayerNorm(x)` only (`ln-residual`) | 3.74 | 0.0444 |
+| Raw keys and values only (`raw-kv`) | 3.75 | 0.0463 |
+| Authors' code, seed 43 | 3.75 | 0.0439 |
+
+These are one seed each. The gaps, about 0.2 against 0.045, are far beyond the seed-to-seed spread. Guo et al. train with BCE and 1 negative and see the collapse from 4 blocks; with sampled softmax we see a tie at 4. We haven't tested whether the loss explains that difference. v6 shows a fix that works on either wiring.
 
 **But depth has diminishing returns.** Each doubling of depth costs roughly 2x the training time but delivers similar or less improvement. At 16 blocks you're spending 5.7x the compute of 2 blocks for +12% quality. The natural next question is whether we can get more from the depth we already have rather than just stacking more blocks.
 
@@ -371,6 +418,54 @@ For reference, Zhai et al. (2024) report SASRec on ML-1M at HR@10 0.2853 and NDC
 | v6 (ReZero) | 8 | 10.1M | 0.3287 | 0.1973 |
 
 ReZero at 8 blocks matches plain SASRec at 16 blocks (0.3287 vs 0.3280) with 3.2M fewer parameters and just over half the training time per epoch (233s vs 419s). 16 scalar parameters buy as much as doubling the depth.
+
+**Gate or no gate.** The only difference between v5 and v6 is what sits between a sublayer's output and the add:
+
+```mermaid
+flowchart LR
+  subgraph N["no gate (v5): x + F(LayerNorm(x))"]
+    direction TB
+    nx["x"] --> nln["LayerNorm"] --> nf["F: attention or feed-forward"] --> nadd(("+"))
+    nx -->|"residual"| nadd
+  end
+  subgraph R["ReZero (v6): x + α · F(LayerNorm(x))"]
+    direction TB
+    rx["x"] --> rln["LayerNorm"] --> rf["F: attention or feed-forward"] --> ra["× α, starts at 0"] --> radd(("+"))
+    rx -->|"residual"| radd
+  end
+```
+
+eSASRec's LiGR layer uses a third kind of gate, `x + σ(W·x) ⊙ F(LayerNorm(x))`: a learned value per feature and per position, computed from `x`. It starts near 0.5, so it halves each sublayer's output instead of switching it off.
+
+**What each block does before any training.** Here is how far each of the 8 blocks moves the stream at initialization, as a multiple of the stream's own size (0 means the block passes its input through unchanged):
+
+```python
+import torch
+from sasrec.model import SASRec
+from sasrec.model.sasrec import AttentionBlock
+
+torch.manual_seed(42)
+model = SASRec(num_items=26744, max_seq_len=200, dropout_rate=0.2, embedding_dim=256, num_blocks=8,
+               num_heads=8, block_style="pre-ln", scale_residual=False).eval()
+moved = []
+for block in model.modules():
+    if isinstance(block, AttentionBlock):
+        block.register_forward_hook(lambda m, i, o: moved.append(((o - i[0]).norm(dim=-1) / i[0].norm(dim=-1)).mean().item()))
+with torch.no_grad():
+    model(torch.randint(1, 26745, (16, 199), generator=torch.Generator().manual_seed(0)))
+print([round(m, 2) for m in moved])  # [8.69, 1.42, 0.87, 0.6, 0.55, 0.44, 0.42, 0.42]
+```
+
+| 8 blocks, at initialization | Block 1 | Block 2 | Block 4 | Block 8 | After training |
+|-----------------------------|---------|---------|---------|---------|----------------|
+| Pre-LN, no gate (v5) | 8.69 | 1.42 | 0.60 | 0.42 | trains |
+| Pre-LN + ReZero (v6) | 0 | 0 | 0 | 0 | trains |
+| Authors' code, no gate | 13.25 | 0.79 | 0.87 | 1.02 | collapses |
+| Authors' code + ReZero | 10.38* | 0 | 0 | 0 | trains |
+
+\*The authors' block starts by normalizing the small item embeddings, which scales them up without changing their direction.
+
+Plain pre-LN is not a pass-through: its first block outweighs the item embeddings almost 9 to 1. These are the buried embeddings described above. Pre-LN still trains, because its residual stream is a plain sum that nothing re-normalizes, and each later block's share of it shrinks. The authors' block keeps moving the stream by about its full size at every block. With ReZero, every block starts as a pass-through on either wiring, and ReZero rescues the authors' block too: with `--scale-res` at 8 blocks, its loss after 3 epochs is 1.88, the same as v6, against 3.74 without (`bash train_v5.sh cuda wiring`). These numbers describe the start of training only; we haven't measured why the authors' block then stays stuck.
 
 ## v7: Relative Position & Temporal Bias
 
@@ -427,6 +522,8 @@ Three things change from SASRec's Transformer block:
 **2. LayerNorm after attention.** Without softmax keeping values bounded, attention outputs can grow large. LayerNorm stabilizes them.
 
 **3. Gating replaces the feed-forward network.** SASRec uses a 2-layer FFN after attention. HSTU replaces it with a pointwise gate: a separate projection U(X) from the raw input gets multiplied element-wise with the attention output. Each feature dimension is the product of "what attention found" and "what the raw input says." This lets the model selectively pass, amplify, or suppress each dimension. Same idea as SwiGLU in LLaMA.
+
+Our HSTU also differs from Meta's in a way that matters for depth: it has no LayerNorm on the block input, so its projections read the raw stream. That is the kind of wire that collapses SASRec in v5, yet our HSTU trains at 8 blocks. Its ReZero residual (v6) is the likely reason, but we haven't tested that ([#30](https://github.com/eifuentes/nanoSASRec/issues/30)).
 
 **Results on ML-20M (8 blocks, dim=256, heads=8, 50 epochs, full-catalog eval; seed 42 except v7, which is mean ± std over seeds 42-44):**
 

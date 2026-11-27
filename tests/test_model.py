@@ -100,7 +100,7 @@ def test_time_buckets_cover_seconds_to_about_two_weeks():
     assert buckets[-2] == buckets[-1] == 31
 
 
-@pytest.mark.parametrize("block_style", ["pre-ln", "original"])
+@pytest.mark.parametrize("block_style", ["pre-ln", "original", "ln-residual", "raw-kv"])
 def test_where_the_residual_starts(block_style):
     # ReZero scalars start at 0, which switches both sublayers off. What's left is the residual path:
     # pre-LN passes x through untouched, the original SASRec block re-normalizes it at every block.
@@ -111,7 +111,7 @@ def test_where_the_residual_starts(block_style):
     mask = torch.triu(torch.ones(SEQ_LEN, SEQ_LEN), diagonal=1).bool()
     with torch.no_grad():
         out = block(x, mask)
-    expected = x if block_style == "pre-ln" else block.norm_ffn(block.norm_attn(x))
+    expected = block.norm_ffn(block.norm_attn(x)) if block_style in ("original", "ln-residual") else x
     assert torch.allclose(out, expected, atol=1e-6)
 
 
@@ -126,4 +126,20 @@ def test_original_block_matches_the_sasrec_reference_code():
         h = q + block.attn(q, mask, kv=x)  # queries normalized, keys and values not
         f = block.norm_ffn(h)
         expected = f + block.ffn(f)
+        assert torch.allclose(block(x, mask), expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("block_style", ["ln-residual", "raw-kv"])
+def test_ablation_blocks_take_one_change_each(block_style):
+    # Each ablation is pre-LN with exactly one of the original block's two changes
+    torch.manual_seed(0)
+    block = AttentionBlock(dropout_rate=0.0, embedding_dim=16, num_heads=2, block_style=block_style)
+    x = torch.randn(2, SEQ_LEN, 16)
+    mask = torch.triu(torch.ones(SEQ_LEN, SEQ_LEN), diagonal=1).bool()
+    from_norm = block_style == "ln-residual"
+    with torch.no_grad():
+        q = block.norm_attn(x)
+        h = (q if from_norm else x) + block.attn(q, mask, kv=None if from_norm else x)
+        f = block.norm_ffn(h)
+        expected = (f if from_norm else h) + block.ffn(f)
         assert torch.allclose(block(x, mask), expected, atol=1e-6)

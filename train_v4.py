@@ -52,8 +52,16 @@ def main():
         "--block-style",
         type=str,
         default="pre-ln",
-        choices=["pre-ln", "original"],
-        help="pre-ln: x + sublayer(LayerNorm(x)). original: the SASRec paper's code, residual from LayerNorm(x)",
+        choices=["pre-ln", "original", "ln-residual", "raw-kv"],
+        help="How each block is wired (CURRICULUM v4-v5). pre-ln: x + sublayer(LayerNorm(x)), the SASRec paper's "
+        "formula. original: the SASRec authors' released code, residual from LayerNorm(x) and keys/values from "
+        "the raw x. ln-residual, raw-kv: only one of those two changes",
+    )
+    parser.add_argument(
+        "--scale-res",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="ReZero residual scaling, off in v4 and on in v6+ (CURRICULUM v6)",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs for training")
@@ -103,6 +111,7 @@ def main():
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
         block_style=args.block_style,
+        scale_residual=args.scale_res,
     )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")

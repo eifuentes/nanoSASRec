@@ -254,16 +254,23 @@ class AttentionBlock(nn.Module):
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
         scale_residual: bool = False,
-        block_style: Literal["pre-ln", "original"] = "pre-ln",
+        block_style: Literal["pre-ln", "original", "ln-residual", "raw-kv"] = "pre-ln",
     ):
 
         super().__init__()
 
-        # "pre-ln" is the standard pre-LayerNorm block: x + sublayer(LayerNorm(x)).
-        # "original" is the block from the SASRec paper's code (kang205/SASRec, also RecTools' port):
-        # the residual starts from LayerNorm(x) instead of x, and only the attention queries are
-        # normalized, not the keys and values. Everything else (dropout, init) is the same.
+        # How the block is wired (CURRICULUM v4-v6, issue #32):
+        # "pre-ln" is the standard pre-LayerNorm block, x + sublayer(LayerNorm(x)). It is also the
+        #   formula in the SASRec paper (Kang & McAuley 2018, Section III-C).
+        # "original" is the block in the SASRec authors' released code (kang205/SASRec, and RecTools'
+        #   port that eSASRec benchmarks). It differs from the paper in two places: the residual
+        #   starts from LayerNorm(x) instead of x, and only the attention queries are normalized,
+        #   not the keys and values. Everything else (dropout, init) is the same.
+        # "ln-residual" and "raw-kv" each make only one of those two changes, to tell them apart.
+        # On ML-20M, "original" collapses at 8+ blocks, and so does each single change (CURRICULUM v5).
         self.block_style = block_style
+        self.residual_from_norm = block_style in ("original", "ln-residual")
+        self.raw_kv = block_style in ("original", "raw-kv")
 
         # determine feed-forward network arguments
         ffn_hidden_dim = ffn_dim or embedding_dim
@@ -292,17 +299,16 @@ class AttentionBlock(nn.Module):
         self.dropout_ffn = nn.Dropout(p=dropout_rate)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
-        original = self.block_style == "original"
         # forward attention (with relative position and/or temporal bias if provided)
         normed = self.norm_attn(x)
-        # the original block takes keys and values from the un-normalized x
-        y = self.attn(normed, mask=mask, bias=bias, kv=x if original else None)
+        # queries always read LayerNorm(x); "original" and "raw-kv" take keys and values from the raw x
+        y = self.attn(normed, mask=mask, bias=bias, kv=x if self.raw_kv else None)
         # apply attention dropout
         y = self.dropout_attn(y)
         # residual connection: add the input back so gradients can flow without going through attention.
         # pre-LN adds back x itself, so the residual stream is never normalized inside the stack.
-        # The original adds back LayerNorm(x), so the stream is re-normalized at every block.
-        residual = normed if original else x
+        # "original" and "ln-residual" add back LayerNorm(x), so the stream is re-normalized at every block.
+        residual = normed if self.residual_from_norm else x
         if self.scale_residual:
             x = residual + (self.residual_scalar_attn * y)
         else:
@@ -312,7 +318,7 @@ class AttentionBlock(nn.Module):
         y = self.ffn(normed)
         y = self.dropout_ffn(y)
         # residual connections
-        residual = normed if original else x
+        residual = normed if self.residual_from_norm else x
         if self.scale_residual:
             x = residual + (self.residual_scalar_ffn * y)
         else:
@@ -334,7 +340,7 @@ class SASRec(nn.Module):
         scale_residual: bool = False,
         relative_bias: bool = False,
         num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
-        block_style: Literal["pre-ln", "original"] = "pre-ln",
+        block_style: Literal["pre-ln", "original", "ln-residual", "raw-kv"] = "pre-ln",
     ):
 
         super().__init__()

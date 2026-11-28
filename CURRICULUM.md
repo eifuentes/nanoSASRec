@@ -93,7 +93,7 @@ Estimate batches per epoch: 47
 [03:47:07] [Epochs 200] Test metrics: HR@10: 0.7356 NDCG@10: 0.4737
 
   Prediction demo (user 1):
-    Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
+    Recent history:  Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997), Mulan (1998)
     Ground truth:    Pocahontas (1995)
     Model top-10:
        1. Lady and the Tramp (1955)
@@ -151,7 +151,7 @@ Estimate batches per epoch: 47
 [04:17:06] [Epochs 200] Test metrics: HR@10: 0.7672 NDCG@10: 0.5471
 
   Prediction demo (user 1):
-    Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
+    Recent history:  Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997), Mulan (1998)
     Ground truth:    Pocahontas (1995)
     Model top-10:
        1. Lion King, The (1994)
@@ -223,7 +223,7 @@ Estimate batches per epoch: 47
 [05:30:54] [Epochs 400] Test metrics: HR@10: 0.7596 NDCG@10: 0.5318
 
   Prediction demo (user 1):
-    Recent history:  Toy Story (1995), Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997)
+    Recent history:  Bug's Life, A (1998), Antz (1998), Hunchback of Notre Dame, The (1996), Hercules (1997), Mulan (1998)
     Ground truth:    Pocahontas (1995)
     Model top-10:
        1. Lion King, The (1994)

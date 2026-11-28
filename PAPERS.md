@@ -77,6 +77,14 @@ No new architecture has displaced transformers in production. The field after HS
 looks like LLMs after the original Transformer: everyone is scaling and adapting the
 same core architecture, but via different paths. The work organizes into four lanes.
 
+Terms used below:
+- **DLRM** (Deep Learning Recommendation Model): the production standard before generative recommenders. Embedding tables for sparse features, MLPs, and explicit feature interactions.
+- **M-FALCON**: HSTU's inference algorithm (Microbatched-Fast Attention Leveraging Cacheable OperatioNs). It scores many candidate items in one pass by computing the user's history once and caching it.
+- **DAU**: daily active users.
+- **RQ-VAE** (residual-quantized variational autoencoder): compresses an item's content embedding into a short tuple of codes. Each code quantizes what the previous codes left unexplained.
+- **Semantic IDs**: item IDs built from those code tuples, so similar items share prefixes. A generative model can then predict an item code by code, like words in a sentence.
+- **DPO** (Direct Preference Optimization, Rafailov et al. 2023): fine-tunes a model on pairs of preferred and rejected outputs, without training a separate reward model.
+
 ### HSTU-family production scaling
 
 - **Meta, 2026** (2602.16986): ULTRA-HSTU. Sparse attention, attention truncation, Mixture of Transducers. 5x training scaling, 21x inference scaling over baseline HSTU. Deployed to billions of users.

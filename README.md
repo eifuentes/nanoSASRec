@@ -75,7 +75,7 @@ Terms in the table, in short (CURRICULUM.md explains each one where it's introdu
 
 ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering (dropping items or users with fewer than k interactions), so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` verifies each download against the MD5 GroupLens publishes, checks the processed statistics against the published numbers, and writes a `metadata.json` next to `split.json` that records the source and protocol. Up to v0.2.1 (the previous release), nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
 
-From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled evaluation (100 negatives) for both validation and test, because they teach loss functions.
+Each user's history is split leave-one-out: the last item is the test target, the one before it the validation target, and the rest is training data ([diagram](CURRICULUM.md#reading-the-metrics)). From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled evaluation (100 negatives) for both validation and test, because they teach loss functions.
 
 ## Benchmarks
 
@@ -97,19 +97,19 @@ Seed-to-seed spread is about 0.1 points of HR@10, well below the gaps between ve
 
 Published results on the full 26,744-item ML-20M catalog:
 
-| Source | Method | HR@10 | NDCG@10 |
-|--------|--------|-------|---------|
-| Zhai et al. (2024) | SASRec | 0.2889 | 0.1621 |
-| Zhai et al. (2024) | HSTU (4 blocks) | 0.3273 | 0.1895 |
-| Zhai et al. (2024) | HSTU-large (16 blocks) | 0.3556 | 0.2098 |
-| Tikhonovich et al. (2025) | eSASRec (4 blocks) | 0.3289 | 0.1966 |
-| Tikhonovich et al. (2025) | eSASRec (8 blocks) | 0.3457 | 0.2107 |
-| Tikhonovich et al. (2025) | HSTU, recomputed (8 blocks) | 0.3464 | 0.2040 |
-| Tikhonovich et al. (2025) | FuXi-α, recomputed (8 blocks) | 0.3468 | 0.2043 |
+| Method | Split | Numbers from | HR@10 | NDCG@10 |
+|--------|-------|--------------|-------|---------|
+| eSASRec (4 blocks) | same as ours | Tikhonovich et al. (2025), their model | 0.3289 | 0.1966 |
+| eSASRec (8 blocks) | same as ours | Tikhonovich et al. (2025), their model | 0.3457 | 0.2107 |
+| HSTU (8 blocks) | same as ours | Tikhonovich et al. (2025), re-running Meta's code | 0.3464 | 0.2040 |
+| FuXi-α (8 blocks) | same as ours | Tikhonovich et al. (2025), re-running the authors' code | 0.3468 | 0.2043 |
+| SASRec | Zhai et al.'s | Zhai et al. (2024), as reported | 0.2889 | 0.1621 |
+| HSTU (4 blocks) | Zhai et al.'s | Zhai et al. (2024), as reported | 0.3273 | 0.1895 |
+| HSTU-large (16 blocks) | Zhai et al.'s | Zhai et al. (2024), as reported | 0.3556 | 0.2098 |
 
-eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU and FuXi-α rows are those models' original code re-run on the same order-preserving split that `data.py` produces.
+eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps.
 
-The Tikhonovich et al. rows are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+The rows on our split are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s split changes about 25% of the test interactions, so their own rows aren't directly comparable.
 
 - **v7 against eSASRec and the recomputed HSTU:** 0.8 points of HR@10 behind after 50 epochs. eSASRec trains for up to 100, and given the same budget v7 draws level ([Training longer](#training-longer)).
 - **Our HSTU against the recomputed HSTU:** further behind, 1.1 points for v9 and 2.3 for v8 at 50 epochs, and 0.4 and 1.5 at 100. Our HSTU still differs from Meta's code in a few ways: Meta divides the SiLU attention by sequence length, normalizes the block input before the projection, and uses a plain residual where we use ReZero. [#30](https://github.com/eifuentes/nanoSASRec/issues/30) tests which ones matter.
@@ -136,6 +136,31 @@ v9's 50-epoch number here is seed 42 alone, so it differs slightly from the thre
 - v8's lead over v5 at the same depth shrinks from 0.4 to under 0.2 points. HSTU learns faster early on, but SASRec catches up.
 
 Each model is scored on test once, after its last epoch. For most runs the best validation HR@10 also came at the last epoch, so picking the checkpoint by validation would not change their numbers. The exceptions are v7 seed 44 and v5 (best at epoch 95) and v8 (best at epoch 90), each within 0.3 points of their last epoch.
+
+### Reproducing these numbers
+
+Every ML-20M script starts from the same recipe:
+
+| Setting | Value |
+|---------|-------|
+| Embedding size / blocks / heads | 256 / 8 / 8 (`--dim`, `--blocks`, `--heads`) |
+| Sequence length / batch size | 200 / 128 (`--max-len`, `--batch-size`) |
+| Loss | Sampled softmax, 512 random negatives per user (`--num-negatives`) |
+| Optimizer | Adam, learning rate 1e-3 (constant), betas (0.9, 0.98) |
+| Dropout | 0.2 |
+| Budget | 50 epochs, seed 42 (`--epochs`, `--seed`) |
+| v7 adds | ReZero (`--residual-gate rezero`) and relative position + time bias (`--rel-bias`), both on by default |
+
+Each row above is one command (add `--device cuda`, or run it on Modal with `remote.py`):
+
+| Row | Command |
+|-----|---------|
+| v5, all four depths | `bash train_v5.sh cuda` (also runs v5's block-wiring comparison) |
+| v5, one depth | `uv run python train_v4.py --dataset ml-20m --dim 256 --heads 8 --num-negatives 512 --epochs 50 --eval-every 10 --blocks 8` |
+| v6 to v10 | `uv run python train_v6.py`, and the same for `train_v7.py` to `train_v10.py` |
+| v7 and v9, three seeds | add `--seed 42`, `--seed 43` and `--seed 44` |
+| Training longer | add `--epochs 100`. A finished 50-epoch run resumes from its checkpoint instead of starting over. |
+| v7 with eSASRec's settings | `uv run python train_v7.py --ffn-dim 1024 --heads 16 --num-negatives 256 --epochs 100` |
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 

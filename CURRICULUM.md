@@ -27,6 +27,20 @@ v2 and v4-v7 write sampled softmax in its explicit `exp/sum/log` form because it
 
 **Avg loss (BCE, v1/v3):** Instead of picking from a set, the model answers a yes/no question for each item independently: "is this the next item?" A coin flip gives 50/50 on each question, a loss of -log(0.5) ≈ 0.69. v1 adds the positive's and the negative's loss, so its chance level is 2 × 0.69 ≈ 1.39. Anything below that means the model is doing better than chance. Not directly comparable to SSM loss values since they measure different things. v3 averages the loss over the positive and its 256 negatives, so its chance level is about 0.69 and its values end much smaller (around 0.006).
 
+**How each user's history is split.** Leave-one-out, by time. For a user who watched A, B, C, D, E and F in that order:
+
+```
+History, oldest to newest:   A   B   C   D   E   F
+                             └─ training ┘   │   └─ test target
+                                             └─ validation target
+
+Training     reads A B C       predicts B C D (each position predicts the next item)
+Validation   reads A B C D     ranks E against the catalog
+Test         reads A B C D E   ranks F against the catalog
+```
+
+E is never a training target, but it is part of the history the model reads at test time. Items the user has already seen are left out of the ranking.
+
 **Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test then use the same yardstick. On ML-20M, validation HR@10 still runs 3 to 3.5 points above test, probably because the last item is harder to predict (it is one step further from the training data). The gap is steady across versions, so validation is a trustworthy signal for picking models and checkpoints.
 
 **Test metrics (final benchmark):** HR@10 and NDCG@10 on the last item of each user, given everything before it, measured against the full item catalog. The model ranks the ground truth against every item in the dataset, except items already in the user's history: 3,416 items for ML-1M and 26,744 for ML-20M. This is the number you compare against published papers. ML-20M uses the same unfiltered catalog as Zhai et al. (2024) and eSASRec (Tikhonovich et al., 2025). v1-v3 report sampled eval only (they're teaching loss functions, not chasing benchmarks). v4+ reports full-catalog test metrics.

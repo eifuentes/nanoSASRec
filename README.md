@@ -10,11 +10,11 @@ Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every training versi
 
 Most recommender systems (collaborative filtering, two-tower models, deep learning recommender models) learn what a user *likes*. They struggle with what a user *needs right now*. On Amazon, someone who just bought a DSLR camera doesn't need more camera recommendations. They need a lens, then a memory card, then a camera bag. With movies, a user who just watched all three Lord of the Rings films back-to-back is on a fantasy binge, not looking for the romantic comedies their five-year profile suggests. The sequence encodes intent progression that a static user profile can't capture.
 
-This matters because real user behavior is *streaky*. People shop in projects, watch in moods, and listen in phases. Sequential models pick up on these short-term patterns while still remembering long-term preferences, which is why they have become the standard in production recommendation at companies like Meta, YouTube, Kuaishou, and Meituan.
+This matters because real user behavior is *streaky*. People shop in projects, watch in moods, and listen in phases. Sequential models pick up on these short-term patterns while still remembering long-term preferences, which is why they have become the standard in production recommendation at companies like Meta, YouTube and Kuaishou.
 
 Sequential recommendation models the *order* of a user's actions. GRU4Rec (2016) brought RNNs to it, and Transformers turned out to be better at it. **SASRec** (Kang & McAuley, 2018) was the first to apply a causal Transformer decoder to item sequences.
 
-This project builds up SASRec from its original framing all the way to its HSTU variant, one component at a time. Each step changes one thing, measures what it does, and cites the paper behind it. Some steps don't help here, and the docs say so. To use LLMs as an analogy: if SASRec is the original Transformer, HSTU is GPT-2. Same model lineage, but with the refinements that unlocked scaling laws. By v10 you'll understand causal self-attention, loss design for large catalogs, how depth scales, and which production techniques do and don't transfer to a small benchmark.
+This project builds up SASRec from its original framing all the way to its HSTU variant, one component at a time. Each step makes a change, measures what it does, and cites the paper behind it. To use LLMs as an analogy: if SASRec is the original Transformer, HSTU is GPT-2. Same model lineage, but with the refinements that unlocked scaling laws. By v10 you'll understand causal self-attention, loss design for large catalogs, how depth scales, and which production techniques do and don't transfer to a public benchmark.
 
 ## Quick start
 
@@ -26,16 +26,20 @@ uv run python train_v1.py --epochs 200 --eval-every 20 --device mps  # or cpu, c
 
 Train v1 on MovieLens 1M in about 8 minutes on a MacBook GPU (`mps`). The [Versions](#versions) table below shows how the curriculum progresses, and [CURRICULUM.md](CURRICULUM.md) walks through every version: the command, the output, the numbers, and what works, what doesn't, and why. The 8-block ML-20M versions take about 3 to 4 hours for 50 epochs on one A10 GPU.
 
+Needs Python 3.12+ and PyTorch 2.7+. No frameworks, no config systems, no custom CUDA kernels.
+
 ## What it looks like
 
 ```
-Recent history:  Toy Story (1995), Bug's Life (1998), Antz (1998)
-Ground truth:    Pocahontas (1995)
+Recent history:  Batman (1989), Batman Returns (1992), Batman & Robin (1997)
+Ground truth:    Batman Forever (1995)
 Model top-3:
-  1. Lion King, The (1994)
-  2. Little Mermaid, The (1989)
-  3. Jungle Book, The (1967)
+  1. Batman Forever (1995)
+  2. Superman III (1983)
+  3. Avengers, The (1998)
 ```
+
+A hand-picked test user, scored by v4 on ML-1M. The model never trains on the ground truth, and it ranks it first among every movie the user hasn't rated yet. Most users aren't this easy: v4 puts the ground truth in the top 10 for about 30% of them.
 
 ## Versions
 
@@ -44,25 +48,15 @@ Model top-3:
 | `train_v1.py` | Vanilla SASRec + BCE loss | ML-1M | BCE overconfidence problem |
 | `train_v2.py` | Sampled softmax loss | ML-1M | Competition between candidates fixes ranking |
 | `train_v3.py` | gBCE loss + calibration | ML-1M | Calibration needs 2× the epochs; sampled softmax still ranks better |
-| `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +12% NDCG (sampled eval) |
-| `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off with pre-LN blocks, with diminishing returns; the SASRec authors' wiring collapses from 8 blocks |
-| `train_v6.py` | Gated residuals (ReZero) | ML-20M | 8 blocks + ReZero matches 16 blocks without |
-| `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo |
-| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
+| `train_v4.py` | Init, reversed positions, dropout, full-catalog eval, block-wiring flags | ML-1M | Implementation details add +12% NDCG on sampled validation |
+| `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off with diminishing returns, but only with pre-LN blocks; a widely copied wiring fails to train from 8 blocks |
+| `train_v6.py` | Gated residuals (ReZero) | ML-20M | 8 blocks with ReZero match 16 blocks without it |
+| `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in the repo on ML-20M |
+| `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Not a clear win at ML-20M's scale |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Recovers most of v8's gap to v7 |
 | `train_v10.py` | Temperature, L2 norm, collision masking | ML-20M | Didn't help in our setup |
 
-Each version is runnable independently. Read v1-v10 in order for the full progression, or jump to any version.
-
-Terms in the table, in short (CURRICULUM.md explains each one where it's introduced):
-- **BCE** (binary cross-entropy): scores each item as its own yes/no question.
-- **Sampled softmax**: the true item competes with a set of random items for probability.
-- **gBCE** (generalized BCE, from gSASRec): BCE with the positive's term reweighted to make up for sampling only a few negatives.
-- **Pre-LN**: each sublayer reads `LayerNorm(x)` and adds its output back onto `x`. The SASRec paper specifies it; the authors' released code wires it differently.
-- **ReZero**: a gate on each residual branch, one learned number that starts at zero, so every block starts switched off.
-- **HSTU**: Meta's 2024 recommender block, which replaces softmax attention with SiLU attention and a gate.
-- **φ1**: HSTU's nonlinearity on the projections before attention.
-- **A10**: the 24 GB NVIDIA GPU used for every ML-20M run.
+Each version is runnable independently. Read v1-v10 in order for the full progression, or jump to any version. The terms in the table are defined in [CURRICULUM.md](CURRICULUM.md#terms).
 
 `train_v11.py` is an appendix experiment for Dense All Action loss. It is useful context, but not part of the official curriculum path.
 
@@ -73,69 +67,58 @@ Terms in the table, in short (CURRICULUM.md explains each one where it's introdu
 | ML-1M | Curriculum baseline | 6,040 | 3,416 | 165.5 | v1-v4 |
 | ML-20M | Benchmark target | 138,493 | 26,744 | 144.4 | v5-v10 |
 
-ML-20M follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol. There is no k-core filtering (dropping items or users with fewer than k interactions), so the full 26,744-item catalog is kept, and interactions with tied timestamps keep their `ratings.csv` order. `data.py` verifies each download against the MD5 GroupLens publishes, checks the processed statistics against the published numbers, and writes a `metadata.json` next to `split.json` that records the source and protocol. Up to v0.2.1 (the previous release), nanoSASRec dropped items with fewer than 5 ratings (18,345 items). That made ranking easier and made the numbers not comparable with published ML-20M results.
+- **ML-1M** follows the SASRec (Kang & McAuley 2018) and BERT4Rec (Petrov & Macdonald 2022) protocol: 5-core filtering, which repeatedly drops users and items with fewer than 5 interactions, leaving 3,416 of the 3,706 movies.
+- **ML-20M** follows the HSTU (Zhai et al. 2024) and eSASRec (Tikhonovich et al. 2025) protocol: no filtering, so the full 26,744-item catalog is kept.
 
-Each user's history is split leave-one-out: the last item is the test target, the one before it the validation target, and the rest is training data ([diagram](CURRICULUM.md#reading-the-metrics)). From v4 onward, validation and test metrics rank the ground truth against the full item catalog, excluding items already in the user's history. v1-v3 keep sampled evaluation (100 negatives) for both validation and test, because they teach loss functions.
+In both, each user's history is sorted by time, and interactions with tied timestamps keep the order of the source file.
+
+## Evaluation
+
+`data.py --dataset <name>` writes the split to `data/<name>/split.json`: for each user, the training sequence, the validation item and the test item, with timestamps, plus a map from item index back to the MovieLens movie ID. Every training script reads it, so all versions train and evaluate on the same split. A `metadata.json` next to it records the source file, its MD5 and the protocol. `data.py` checks each download against the MD5 GroupLens publishes, and the ML-20M counts against the published numbers.
+
+Each history is split leave-one-out: the last item is the test target, the one before it the validation target, and the rest is training data ([diagram](CURRICULUM.md#reading-the-metrics)). From v4 onward, validation and test rank the ground truth against the full item catalog, leaving out items already in the user's history. v1-v3 keep sampled evaluation (the ground truth against 100 random items), because they teach loss functions.
 
 ## Benchmarks
 
-Full-catalog evaluation on ML-20M (dim=256, 8 heads, 50 epochs, one A10 GPU). Every model ranks the ground truth against all 26,744 items, not a sampled subset. v7 and v9 are the mean ± standard deviation over seeds 42, 43 and 44 (`--seed`). The other rows use seed 42. HR@10 and NDCG@10 are explained in [Reading the Metrics](CURRICULUM.md#reading-the-metrics).
+Full-catalog evaluation on ML-20M (dim=256, 8 heads, one A10 GPU): every model ranks the ground truth against all 26,744 items, not a sampled subset. HR@10 and NDCG@10 are explained in [Reading the Metrics](CURRICULUM.md#reading-the-metrics).
 
-| Version | What changed | HR@10 | NDCG@10 |
-|---------|-------------|-------|---------|
-| v5 (2 blocks) | SASRec baseline | 0.2938 | 0.1713 |
-| v5 (4 blocks) | + depth | 0.3098 | 0.1830 |
-| v5 (8 blocks) | + more depth | 0.3196 | 0.1912 |
-| v5 (16 blocks) | + even more depth | 0.3280 | 0.1970 |
-| v6 (8 blocks) | + ReZero | 0.3287 | 0.1973 |
-| **v7 (8 blocks)** | **+ relative bias** | **0.3380 ± 0.0009** | **0.2025 ± 0.0011** |
-| v8 (8 blocks) | HSTU architecture | 0.3236 | 0.1929 |
-| v9 (8 blocks) | + φ1 pre-activation | 0.3354 ± 0.0009 | 0.2008 ± <0.0001 |
-| v10 (8 blocks) | + temp + L2 + collision | 0.3269 | 0.1949 |
+**Compare rows at the same number of epochs.** Every version was run for 50 epochs and was still improving there. Five were also run for 100 epochs, the budget eSASRec uses. Running every version at 100 epochs and 3 seeds is [#25](https://github.com/eifuentes/nanoSASRec/issues/25).
 
-Seed-to-seed spread is about 0.1 points of HR@10, well below the gaps between versions. v0.2.1 reported these versions on the item 5-core ML-20M (18,345 items). Those numbers were 0.4 to 1.0 points of HR@10 higher, because the smaller catalog makes ranking easier, but the 8-block versions ranked in the same order (v7 > v9 > v6 > v10 > v8 > v5).
+| Version | What changed | Epochs | HR@10 | NDCG@10 |
+|---------|-------------|--------|-------|---------|
+| v5 (2 blocks) | SASRec baseline | 50 | 0.2938 | 0.1713 |
+| v5 (4 blocks) | + depth | 50 | 0.3098 | 0.1830 |
+| v5 (8 blocks) | + more depth | 50 | 0.3196 | 0.1912 |
+| v5 (8 blocks) | + more depth | 100 | 0.3297 | 0.1976 |
+| v5 (16 blocks) | + even more depth | 50 | 0.3280 | 0.1970 |
+| v6 (8 blocks) | + ReZero | 50 | 0.3287 | 0.1973 |
+| v7 (8 blocks) | + relative bias | 50 | 0.3380 ± 0.0009 | 0.2025 ± 0.0011 |
+| **v7 (8 blocks)** | **+ relative bias** | **100** | **0.3473 ± 0.0013** | **0.2098 ± 0.0005** |
+| v8 (8 blocks) | HSTU architecture | 50 | 0.3236 | 0.1929 |
+| v8 (8 blocks) | HSTU architecture | 100 | 0.3313 | 0.1976 |
+| v9 (8 blocks) | + φ1 pre-activation | 50 | 0.3354 ± 0.0009 | 0.2008 ± <0.0001 |
+| v9 (8 blocks) | + φ1 pre-activation | 100 | 0.3426 | 0.2061 |
+| v10 (8 blocks) | + temp + L2 + collision | 50 | 0.3269 | 0.1949 |
+| v10 (8 blocks) | + temp + L2 + collision | 100 | 0.3336 | 0.1992 |
+
+The ± rows are the mean and standard deviation over seeds 42, 43 and 44 (`--seed`); the others use seed 42. Seed-to-seed spread is about 0.1 points of HR@10, well below the gaps between versions. The order of the versions is the same at 50 and 100 epochs. [CURRICULUM v8](CURRICULUM.md#v8-hstu) looks at how each version gains from the extra epochs.
 
 Published results on the full 26,744-item ML-20M catalog:
 
 | Method | Split | Numbers from | HR@10 | NDCG@10 |
 |--------|-------|--------------|-------|---------|
-| eSASRec (4 blocks) | same as ours | eSASRec paper | 0.3289 | 0.1966 |
-| eSASRec (8 blocks) | same as ours | eSASRec paper | 0.3457 | 0.2107 |
-| HSTU (8 blocks) | same as ours | eSASRec paper, re-run | 0.3464 | 0.2040 |
-| FuXi-α (8 blocks) | same as ours | eSASRec paper, re-run | 0.3468 | 0.2043 |
-| SASRec | Zhai et al.'s | HSTU paper | 0.2889 | 0.1621 |
-| HSTU (4 blocks) | Zhai et al.'s | HSTU paper | 0.3273 | 0.1895 |
-| HSTU-large (16 blocks) | Zhai et al.'s | HSTU paper | 0.3556 | 0.2098 |
+| **v7 (8 blocks, 100 epochs)** | same as ours | [this repo](#benchmarks) | **0.3473 ± 0.0013** | **0.2098 ± 0.0005** |
+| eSASRec (4 blocks) | same as ours | [eSASRec paper](PAPERS.md#evaluation-methodology) | 0.3289 | 0.1966 |
+| eSASRec (8 blocks) | same as ours | [eSASRec paper](PAPERS.md#evaluation-methodology) | 0.3457 | 0.2107 |
+| HSTU (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#evaluation-methodology) | 0.3464 | 0.2040 |
+| FuXi-α (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#evaluation-methodology) | 0.3468 | 0.2043 |
+| SASRec | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.2889 | 0.1621 |
+| HSTU (4 blocks) | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.3273 | 0.1895 |
+| HSTU-large (16 blocks) | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.3556 | 0.2098 |
 
-eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps. "Re-run" means the eSASRec authors (Tikhonovich et al., 2025) ran that model's original code on our split; the other rows are as each paper reports them.
+The rows on our split are the closest comparison: same split, same full-catalog ranking. HSTU's split orders tied timestamps differently, which changes about 25% of the test targets, so those rows aren't directly comparable.
 
-The rows on our split are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s split changes about 25% of the test interactions, so their own rows aren't directly comparable.
-
-- **v7 against eSASRec and the recomputed HSTU:** 0.8 points of HR@10 behind after 50 epochs. eSASRec trains for up to 100, and given the same budget v7 draws level ([Training longer](#training-longer)).
-- **Our HSTU against the recomputed HSTU:** further behind, 1.1 points for v9 and 2.3 for v8 at 50 epochs, and 0.4 and 1.5 at 100. Our HSTU still differs from Meta's code in a few ways: Meta divides the SiLU attention by sequence length, normalizes the block input before the projection, and uses a plain residual where we use ReZero. [#30](https://github.com/eifuentes/nanoSASRec/issues/30) tests which ones matter.
-
-### Training longer
-
-The 50-epoch table compares versions under one fixed budget. It is not where training stops: every version is still improving at epoch 50. Re-running five of them, plus v7 with eSASRec's settings, for 100 epochs (seed 42; v7 is the mean ± std over seeds 42-44):
-
-| Version | HR@10, 50 epochs | HR@10, 100 epochs | NDCG@10, 100 epochs |
-|---------|------------------|-------------------|---------------------|
-| v5 (8 blocks) | 0.3196 | 0.3297 | 0.1976 |
-| **v7 (8 blocks)** | 0.3380 ± 0.0009 | **0.3473 ± 0.0013** | **0.2098 ± 0.0005** |
-| v7 with eSASRec's settings | | 0.3476 | 0.2091 |
-| v8 (8 blocks) | 0.3236 | 0.3313 | 0.1976 |
-| v9 (8 blocks) | 0.3344 | 0.3426 | 0.2061 |
-| v10 (8 blocks) | 0.3269 | 0.3336 | 0.1992 |
-
-v9's 50-epoch number here is seed 42 alone, so it differs slightly from the three-seed mean in the table above.
-
-- Every version gains 0.7 to 1.0 points of HR@10 from the extra 50 epochs. The SASRec versions (v5, v7) gain about 1 point, the HSTU versions (v8 to v10) 0.7 to 0.8.
-- At 100 epochs, v7 matches eSASRec (0.3457 HR@10, 0.2107 NDCG@10) and the recomputed HSTU and FuXi-α (0.3464 and 0.3468). Its HR@10 is 0.1 to 0.2 points higher, about one standard deviation across seeds, so treat it as a tie, not a win. On NDCG@10 it is 0.1 points below eSASRec and 0.6 above the recomputed HSTU.
-- eSASRec's settings (4× feed-forward, 16 heads, 256 negatives) don't help v7. They add 30% more parameters and take 1.8× longer per epoch for the same accuracy.
-- The order doesn't change: v7 > v9 > v10 > v8 > v5. v9, the best HSTU version, closes to 0.4 points behind the recomputed HSTU; v8 is still 1.5 behind.
-- v8's lead over v5 at the same depth shrinks from 0.4 to under 0.2 points. HSTU learns faster early on, but SASRec catches up.
-
-Each model is scored on test once, after its last epoch. For most runs the best validation HR@10 also came at the last epoch, so picking the checkpoint by validation would not change their numbers. The exceptions are v7 seed 44 and v5 (best at epoch 95) and v8 (best at epoch 90), each within 0.3 points of their last epoch.
+At 100 epochs, v7 ties eSASRec and the re-run HSTU and FuXi-α. Its HR@10 is 0.1 to 0.2 points higher, about one standard deviation across seeds, so it's a tie, not a win. Our best HSTU, v9, stays 0.4 points of HR@10 behind the re-run HSTU. Our HSTU still differs from Meta's code in a few places, and [#30](https://github.com/eifuentes/nanoSASRec/issues/30) tests which ones matter.
 
 ### Reproducing these numbers
 
@@ -159,40 +142,14 @@ Each row above is one command (add `--device cuda`, or run it on Modal with `rem
 | v5, one depth | `uv run python train_v4.py --dataset ml-20m --dim 256 --heads 8 --num-negatives 512 --epochs 50 --eval-every 10 --blocks 8` |
 | v6 to v10 | `uv run python train_v6.py`, and the same for `train_v7.py` to `train_v10.py` |
 | v7 and v9, three seeds | add `--seed 42`, `--seed 43` and `--seed 44` |
-| Training longer | add `--epochs 100`. A finished 50-epoch run resumes from its checkpoint instead of starting over. |
-| v7 with eSASRec's settings | `uv run python train_v7.py --ffn-dim 1024 --heads 16 --num-negatives 256 --epochs 100` |
+| 100 epochs | add `--epochs 100`. A finished 50-epoch run resumes from its checkpoint instead of starting over. |
+| v7 with eSASRec's settings ([result](CURRICULUM.md#v7-relative-position--temporal-bias)) | `uv run python train_v7.py --ffn-dim 1024 --heads 16 --num-negatives 256 --epochs 100` |
 
 See [CURRICULUM.md](CURRICULUM.md) for the full analysis from v1 to v10.
 
 ## Papers
 
 See [PAPERS.md](PAPERS.md) for the full research lineage from GRU4Rec through HSTU and which paper justifies which code decision.
-
-## Requirements
-
-Python 3.12+ and PyTorch 2.7+. No frameworks, no config systems, no custom CUDA kernels.
-
-```toml
-dependencies = [
-    "torch>=2.7",
-    "numpy>=1.24",
-]
-```
-
-If you plan to edit the repo, install the dev tools and run Ruff and the tests before committing changes:
-
-```bash
-uv sync --group dev
-uv run ruff format .
-uv run ruff check .
-uv run pytest
-```
-
-The tests are small and run on CPU in a few seconds, using tiny synthetic data. GitHub Actions runs the same commands on every pull request. They check:
-- **The protocol** that published comparisons depend on: the leave-one-out split with its tie-break, and full-catalog ranking with history masking.
-- **The models:** each one returns a vector per position and can't see future items (causal masking), and the relative bias buckets match what the docs describe.
-- **Training batches:** targets are the inputs shifted by one, short histories are padded on the left, and negatives never include an item the user has seen.
-- **The scripts:** v1-v3 train and evaluate end to end, and every v4+ script resumes from a checkpoint to exactly the same weights as an uninterrupted run.
 
 ## Remote GPU Training
 
@@ -203,31 +160,23 @@ uv sync --group cloud
 uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20m"
 ```
 
-`remote.py` automatically preprocesses the requested dataset, mounts the local training scripts and `sasrec/` package, adds `--device cuda`, and persists downloaded data in a _Modal Volume_.
-
-If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
+You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run. This project is not sponsored. [DETAILS.md](DETAILS.md#remote-training-on-modal) has tips for running several Modal jobs at once.
 
 ### Checkpoints
 
-v4+ scripts save checkpoints so an interrupted run can pick up where it left off, on Modal or anywhere else:
+v4+ scripts save a checkpoint every 5 epochs (`--checkpoint-every`) and after the last epoch, under `checkpoints/`. After any interruption, run the same command again and it picks up where it left off. To train a finished run for longer, run it again with a larger `--epochs`. [DETAILS.md](DETAILS.md#checkpoints) covers how runs are named, when a resumed run matches an uninterrupted one exactly, and what to do after changing code.
 
-- **Where and when.** Every 5 epochs by default, and after the last epoch, to `checkpoints/<script>-<dataset>-seed<N>-<hash>/`. Pass `--checkpoint-every N` to save every N epochs, or `--checkpoint-every 0` to stop saving them. The hash covers every argument that changes the weights.
-- **Resuming.** After any interruption (a crash, Ctrl-C, a preemption), run the same command again. It restores the model, the optimizer and all random number generators from the latest checkpoint. On Modal, checkpoints live on their own Volume and Modal re-runs the command itself, so a preempted job picks up where it left off.
-- **Extending a run.** `--epochs` is not part of the hash, so a finished run can be extended by re-running it with a larger `--epochs`. The learning rate is constant, so the result is the same as a single longer run.
-- **Exactness.** A resumed run matches an uninterrupted one exactly on CPU (`tests/test_checkpoint.py`). On GPU, two things can break that:
-  - *Summation order.* v7+ look up a learned bias for every pair of positions, so millions of entries read the same 32 rows of each bias table. In the backward pass, CUDA adds their gradients in whatever order its threads finish. Floating-point addition depends on order, so the last bits change from run to run, and over training that grows to the third or fourth decimal of the loss. Pass `--deterministic` to make PyTorch use fixed-order versions of those operations. Then v7+ repeat exactly too, at about 20% more time per epoch (v7 on ML-20M, A10). v4-v6 have no bias tables and repeat exactly without it.
-  - *GPU model.* Different GPU models can run different kernels, so their results differ in the last bits even with `--deterministic`. Modal's `A10` can be either an A10 or an A10G, so a run preempted on one and resumed on the other won't match exactly.
+## Contributing
 
-  This drift is noise of the same kind as changing the seed, and no larger. After 3 epochs of v7 on ML-20M it moved NDCG@10 by 0.0004 (0.1527 vs 0.1531) and left HR@10 unchanged, inside the ±0.0005 NDCG spread across seeds 42-44. It doesn't change any conclusion here.
-- **Changing code.** The hash covers arguments, not code. After changing a training script, delete its run directory (or pass a new `--checkpoint-dir`) so the run starts fresh.
+Install the dev tools, then run Ruff and the tests before committing:
 
-You can also use a regular GPU VM from providers like [Lambda](https://lambda.ai/instances), [Lightning AI](https://lightning.ai/), or any cloud where `uv sync` can run.
+```bash
+uv sync --group dev
+uv run ruff format .
+uv run ruff check .
+uv run pytest
+```
 
-This project is not sponsored.
+The tests run on CPU in a few seconds on tiny synthetic data, and GitHub Actions runs the same commands on every pull request. They cover the evaluation protocol, causal masking in every model, how training batches are built, and exact resume from checkpoints.
 
-## Roadmap
-
-- **In-batch negatives** ([#27](https://github.com/eifuentes/nanoSASRec/issues/27)): use positive items from other users in the batch as harder negatives. Worth testing with v10's temperature and L2 norm, though Zhai et al. get their ML-20M results with random negatives.
-- **LiGR gate** ([#42](https://github.com/eifuentes/nanoSASRec/issues/42)): v6's second residual gate, the input-dependent one eSASRec uses.
-- **Production optimization** ([#29](https://github.com/eifuentes/nanoSASRec/issues/29)): KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
-- **Stochastic Length training** ([#28](https://github.com/eifuentes/nanoSASRec/issues/28)): randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).
+What's next is tracked in [GitHub issues](https://github.com/eifuentes/nanoSASRec/issues): pick one up, or open a new one.

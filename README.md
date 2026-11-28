@@ -107,7 +107,7 @@ Published results on the full 26,744-item ML-20M catalog:
 | HSTU (4 blocks) | Zhai et al.'s | HSTU paper | 0.3273 | 0.1895 |
 | HSTU-large (16 blocks) | Zhai et al.'s | HSTU paper | 0.3556 | 0.2098 |
 
-eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps. "Re-run" means the eSASRec authors (Tikhonovich et al., 2025) ran that model's original code on our split; the other rows are each paper's own model.
+eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps. "Re-run" means the eSASRec authors (Tikhonovich et al., 2025) ran that model's original code on our split; the other rows are as each paper reports them.
 
 The rows on our split are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s split changes about 25% of the test interactions, so their own rows aren't directly comparable.
 

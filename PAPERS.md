@@ -5,7 +5,8 @@ Every design decision in this repo traces back to a specific paper. This documen
 The story: SASRec replaces RNNs with Transformers, BERT4Rec challenges it and the
 community splits, the loss function is identified as the real problem, papers argue SASRec
 fails to scale with depth (in this repo, that traces back to the block wiring in its released
-code), PinnerFormer bridges to production, and HSTU carries the line into trillion-parameter scale.
+code), PinnerFormer bridges to production, HSTU carries the line into trillion-parameter scale, and
+eSASRec shows that SASRec with the right loss and layers is competitive with HSTU.
 
 ## Foundation (2016-2018)
 
@@ -47,15 +48,20 @@ underperformance is caused by its loss function, not its architecture.
 
 - **Krichene & Rendle, KDD 2020**: "On Sampled Metrics for Item Recommendation." Sampled metrics (100 negatives) are biased and can reverse model rankings. Use full-catalog evaluation when feasible.
 - **Rendle, Zhang & Koren, 2019** (1905.01395): "On the Difficulty of Evaluating Baselines." Carefully tuned vanilla MF beats most newly proposed methods. The reason this repo insists on getting implementation details right before claiming improvements.
-- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** Re-benchmarks Transformer recommenders on one shared split, and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M protocol follows this paper. It also re-runs HSTU and FuXi-α with their original code on that split; the README's published-results table takes these numbers and eSASRec's own from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. eSASRec itself is SASRec with sampled softmax and a gated Transformer layer (LiGR). Its 8-layer SASRec baseline runs on a port of the SASRec authors' code and collapses (CURRICULUM v5).
+- **Tikhonovich et al., RecSys 2025** (2508.06450): eSASRec's shared benchmark split, which our ML-20M protocol follows. See [eSASRec](#esasrec-2025) below.
 
 ## The bridge to HSTU (2022-2024)
 
 - **Li, Wang & McAuley, WSDM 2020** (doi: 10.1145/3336191.3371786): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute positions and the time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
 - **Pancha et al., KDD 2022** (2205.04507): **PinnerFormer.** Pinterest's industrial SASRec-style model. Introduces "Dense All Action" loss (predict all future actions, not just the next item), which our appendix `train_v11.py` tries. Pre-LN residuals, sampled softmax.
 - **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." Compares HSTU, Llama, GPT, and SASRec by varying depth, and reports SASRec collapsing from 4 blocks on ML-20M. Llama-style residuals and relative attention bias restore scaling. Their SASRec applies the residual "after layer normalization", like the authors' code; CURRICULUM v5 compares their results with ours.
-- **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. Trillion-parameter scale with power-law scaling. Also introduces M-FALCON, an inference algorithm that scores many candidate items in one pass by computing the user's history once. The north star. Meta's [generative-recommenders](https://github.com/meta-recsys/generative-recommenders) is the official code and the reference for our HSTU versions. Its ML-20M numbers come from a split that orders tied timestamps differently from ours (see eSASRec under [Evaluation methodology](#evaluation-methodology)).
+- **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. Trillion-parameter scale with power-law scaling. Also introduces M-FALCON, an inference algorithm that scores many candidate items in one pass by computing the user's history once. The north star. Meta's [generative-recommenders](https://github.com/meta-recsys/generative-recommenders) is the official code and the reference for our HSTU versions. Its ML-20M numbers come from a split that orders tied timestamps differently from ours (see [eSASRec](#esasrec-2025)).
 - **FuXi-α, WWW 2025** (2502.03036): Extends the HSTU block with a Modified Feed-Forward Network (MFFN) using SwiGLU in a two-stage architecture. One of the re-run rows in the README's published results.
+
+## eSASRec (2025)
+
+- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** "Enhancing Transformer-based Recommendations in a Modular Fashion." Asks whether the separate improvements made to SASRec add up, and finds one strong combination: SASRec's shifted-sequence training objective, sampled softmax loss, and LiGR Transformer layers (pre-LN, with a learned sigmoid gate on each residual branch and a SwiGLU feed-forward). That is close to the path this repo takes from v2 to v6, with LiGR's gate where v6 uses ReZero ([#42](https://github.com/eifuentes/nanoSASRec/issues/42)). The changes are simple and need no extra features, so the authors propose it as an easy, strong baseline. In a preliminary study on academic benchmarks it beats ActionPiece by 23% NDCG@10. In their production-like evaluation it sits on the accuracy-coverage Pareto frontier with HSTU, though there it doesn't beat HSTU.
+- **Its benchmark.** The paper re-runs HSTU and FuXi-α with their original code on one shared split, and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M split matches theirs, and the README's published-results table takes these numbers and eSASRec's own from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its 8-layer SASRec baseline runs on a port of the SASRec authors' code and collapses (CURRICULUM v5).
 
 ## Not implemented yet
 

@@ -108,10 +108,10 @@ Published results on the full 26,744-item ML-20M catalog:
 | Method | Split | Numbers from | HR@10 | NDCG@10 |
 |--------|-------|--------------|-------|---------|
 | **v7 (8 blocks, 100 epochs)** | same as ours | [this repo](#benchmarks) | **0.3473 ± 0.0013** | **0.2098 ± 0.0005** |
-| eSASRec (4 blocks) | same as ours | [eSASRec paper](PAPERS.md#evaluation-methodology) | 0.3289 | 0.1966 |
-| eSASRec (8 blocks) | same as ours | [eSASRec paper](PAPERS.md#evaluation-methodology) | 0.3457 | 0.2107 |
-| HSTU (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#evaluation-methodology) | 0.3464 | 0.2040 |
-| FuXi-α (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#evaluation-methodology) | 0.3468 | 0.2043 |
+| eSASRec (4 blocks) | same as ours | [eSASRec paper](PAPERS.md#esasrec-2025) | 0.3289 | 0.1966 |
+| eSASRec (8 blocks) | same as ours | [eSASRec paper](PAPERS.md#esasrec-2025) | 0.3457 | 0.2107 |
+| HSTU (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#esasrec-2025) | 0.3464 | 0.2040 |
+| FuXi-α (8 blocks) | same as ours | [eSASRec paper, re-run](PAPERS.md#esasrec-2025) | 0.3468 | 0.2043 |
 | SASRec | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.2889 | 0.1621 |
 | HSTU (4 blocks) | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.3273 | 0.1895 |
 | HSTU-large (16 blocks) | HSTU's | [HSTU paper](PAPERS.md#the-bridge-to-hstu-2022-2024) | 0.3556 | 0.2098 |

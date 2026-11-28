@@ -232,7 +232,9 @@ def demo(
     top10 = (scores.topk(10).indices + 1).cpu().tolist()
 
     print(f"\n  Prediction demo (user {user}):")
-    print(f"    Recent history:  {', '.join(name(i) for i in user_train[user][-5:])}")
+    # the last items the model reads, ending with the validation item
+    history = list(user_train[user]) + user_valid[user]
+    print(f"    Recent history:  {', '.join(name(i) for i in history[-5:])}")
     print(f"    Ground truth:    {name(ground_truth)}")
     print("    Model top-10:")
     for rank, item_id in enumerate(top10, 1):

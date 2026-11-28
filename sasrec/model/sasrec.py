@@ -1,14 +1,15 @@
 """
-sasrec.py - SASRec model architecture for nanoSASRec v4+
+sasrec.py - SASRec model architecture for nanoSASRec v6+
 
-Shared model components used by train_v4.py and later versions.
+Shared model components used by train_v6.py and later versions. train_v4.py has its own
+copy of the v4 parts, so it stays a single file like v1-v3.
 Architecture is identical to v1-v3 with these refinements:
     - Weight init: truncated normal with std=1/sqrt(d) (Zhai et al. (2024))
     - Reversed positional embeddings (Huang 2025, arxiv: 2504.09596)
     - Causal mask as registered buffer (created once, not per forward pass)
     - Configurable feed-forward network hidden dim and activation function
     - Attention weight dropout (standard in Transformer implementations, e.g. tensor2tensor)
-    - Residual scaling via ReZero (Bachlechner et al. 2020) for stable depth scaling
+    - Residual gates, ReZero (Bachlechner et al. 2020) so far, for stable depth scaling (v6)
     - Relative position bias (Raffel et al. 2020, Zhai et al. 2024) with log-bucketed distances
 """
 
@@ -244,20 +245,29 @@ class AttentionBlock(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
-        scale_residual: bool = False,
+        residual_gate: Literal["none", "rezero", "ligr"] = "none",
     ):
 
         super().__init__()
+
+        # Residual gate (CURRICULUM v6): what multiplies each sublayer's output before it is
+        # added back onto the residual stream x.
+        #   "none":   x + F(LayerNorm(x)), the plain pre-LN block of v4 and v5.
+        #   "rezero": x + alpha * F(LayerNorm(x)), one learned scalar per sublayer that starts at 0
+        #             (ReZero, Bachlechner et al. 2020), so every block starts as a pass-through.
+        #   "ligr":   x + sigmoid(W x) * F(LayerNorm(x)), a gate per feature and position computed
+        #             from x (LiGR, arXiv 2502.03417, used by eSASRec). Not implemented yet, see issue #42.
+        if residual_gate == "ligr":
+            raise NotImplementedError("The LiGR residual gate is not implemented yet, see issue #42")
+        self.residual_gate = residual_gate
 
         # determine feed-forward network arguments
         ffn_hidden_dim = ffn_dim or embedding_dim
         ffn_activation_module = nn.GELU() if ffn_activation == "gelu" else nn.ReLU()
 
         # setup learnable parameters
-        self.scale_residual = scale_residual
-        # See for detail - ReZero (Bachlechner et al. 2020)
-        if self.scale_residual:
-            # one learnable scaler per residual connection
+        if self.residual_gate == "rezero":
+            # one learnable scalar per residual connection
             self.residual_scalar_attn = nn.Parameter(torch.zeros(1))
             self.residual_scalar_ffn = nn.Parameter(torch.zeros(1))
 
@@ -286,7 +296,7 @@ class AttentionBlock(nn.Module):
         y = self.dropout_attn(y)
         # residual connection: add original input back so gradients
         # can flow without having to go through attention
-        if self.scale_residual:
+        if self.residual_gate == "rezero":
             x = x + (self.residual_scalar_attn * y)
         else:
             x = x + y
@@ -295,7 +305,7 @@ class AttentionBlock(nn.Module):
         y = self.ffn(y)
         y = self.dropout_ffn(y)
         # residual connections
-        if self.scale_residual:
+        if self.residual_gate == "rezero":
             x = x + (self.residual_scalar_ffn * y)
         else:
             x = x + y
@@ -313,7 +323,7 @@ class SASRec(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
-        scale_residual: bool = False,
+        residual_gate: Literal["none", "rezero", "ligr"] = "none",
         relative_bias: bool = False,
         num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
     ):
@@ -354,7 +364,7 @@ class SASRec(nn.Module):
                     num_heads=num_heads,
                     ffn_dim=ffn_dim,
                     ffn_activation=ffn_activation,
-                    scale_residual=scale_residual,
+                    residual_gate=residual_gate,
                 )
                 for _ in range(num_blocks)
             ]

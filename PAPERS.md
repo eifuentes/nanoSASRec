@@ -4,14 +4,14 @@ Every design decision in this repo traces back to a specific paper. This documen
 
 The story: SASRec replaces RNNs with Transformers, BERT4Rec challenges it and the
 community splits, the loss function is identified as the real problem, papers argue SASRec
-fails to scale with depth, PinnerFormer bridges to production, and HSTU carries the line into
-trillion-parameter scale.
+fails to scale with depth (in this repo, that traces back to the block wiring in its released
+code), PinnerFormer bridges to production, and HSTU carries the line into trillion-parameter scale.
 
 ## Foundation (2016-2018)
 
 - **Hidasi et al., ICLR 2016** (1511.06939): GRU4Rec. First RNN for session-based recommendation. The baseline SASRec was built to replace.
 - **Vaswani et al., NeurIPS 2017** (1706.03762): "Attention Is All You Need." The Transformer architecture. SASRec adapts the decoder-only (causal) variant.
-- **Kang & McAuley, ICDM 2018** (1808.09781): **SASRec.** Causal self-attention over item sequences for next-item prediction. Trained with BCE loss and 1 negative sample. The architecture this entire repo is built around.
+- **Kang & McAuley, ICDM 2018** (1808.09781): **SASRec.** Causal self-attention over item sequences for next-item prediction. Trained with BCE loss and 1 negative sample. The architecture this entire repo is built around. The paper's block formula is pre-LN, `x + Dropout(g(LayerNorm(x)))`, but the authors' released code adds the residual back from `LayerNorm(x)` and feeds raw keys and values to attention. The mismatch looks like a side effect of reusing a post-LN Transformer's functions, and [pmixer/SASRec.pytorch#47](https://github.com/pmixer/SASRec.pytorch/issues/47) pointed it out in 2025. That code wiring collapses at 8+ blocks on ML-20M (CURRICULUM v4 and v5).
 - **Sun et al., CIKM 2019** (1904.06690): **BERT4Rec.** Bidirectional attention with masked-item prediction (Cloze objective). Claimed superiority over SASRec, setting up the debate resolved below.
 
 ## The SASRec vs. BERT4Rec debate (2019-2022)
@@ -34,26 +34,29 @@ underperformance is caused by its loss function, not its architecture.
 - **Huang, arXiv 2025** (2504.09596): "Revisiting Self-Attentive Sequential Recommendation." Positional embedding alignment (steps-back-from-prediction), padding embedding must be frozen at zero, advocacy for native PyTorch attention primitives.
 - **D'Ercoli et al., arXiv 2025** (2506.14692): Replicability study of BSARec vs SASRec on a common codebase (EasyRec). Documents that normalization order, dropout placement, and initialization cause 2-5% metric swings.
 - **Xiong et al., ICML 2020** (2002.04745): "On Layer Normalization in the Transformer Architecture." The general Pre-LN vs Post-LN analysis.
-- **pmixer Result_Norm.md, May 2025**: Pre-LN vs Post-LN empirical results specifically for SASRec. Pre-LN wins on 3/4 datasets.
+- **pmixer/SASRec.pytorch, May 2025** ([#47](https://github.com/pmixer/SASRec.pytorch/issues/47), [results](https://github.com/Tiny-Snow/SASRec.pytorch/blob/main/Result_Norm.md)): Points out that SASRec's released code doesn't match the paper's pre-LN formula, and compares the original wiring with standard pre-LN and post-LN at 2 and 3 blocks, where the differences are small.
 
 ## Depth scaling and residual stabilization (2020-2023)
 
 - **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks match 16 blocks without it.
-- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers. (Our v5 sweep doesn't reproduce this; see Guo et al. below.)
+- **De & Smith, NeurIPS 2020** (2002.10444): SkipInit. The same idea for ResNets: a scalar on each residual branch that starts at zero.
+- **Touvron et al., ICCV 2021** (2103.17239): CaiT's LayerScale. One learned scale per channel on each residual branch, starting small rather than at zero.
+- **LinkedIn, arXiv 2025** (2502.03417): "From Features to Transformers." Its LiGR layer gates the residual branch with `σ(W·x)`, computed from the input. eSASRec uses it; our v6 accepts `--residual-gate ligr` but doesn't implement it yet ([#42](https://github.com/eifuentes/nanoSASRec/issues/42)).
+- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers. (Our pre-LN v5 sweep keeps improving to 16 blocks; see Guo et al. below.)
 - **Peng et al., TKDD 2023** (2311.07742): "Modeling Sequences as Star Graphs to Address Over-smoothing." Cosine similarity among sequence elements rises from 0.5 to 0.8 from block 1 to block 6. Formalizes why deeper SASRec doesn't improve.
 
 ## Evaluation methodology
 
 - **Krichene & Rendle, KDD 2020**: "On Sampled Metrics for Item Recommendation." Sampled metrics (100 negatives) are biased and can reverse model rankings. Use full-catalog evaluation when feasible.
 - **Petrov & Macdonald, RecSys 2022** (2207.07483): BERT4Rec replicability study (also listed above). Source of this repo's ML-1M preprocessing.
-- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** Re-benchmarks Transformer recommenders, including HSTU and FuXi-α, on one shared split and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M protocol and published comparisons follow this paper. eSASRec itself is SASRec with sampled softmax and a gated Transformer layer (LiGR).
+- **Tikhonovich et al., RecSys 2025** (2508.06450): **eSASRec.** Re-benchmarks Transformer recommenders, including HSTU and FuXi-α, on one shared split and finds that HSTU's preprocessing reorders tied timestamps, changing about 25% of the ML-20M test set. Our ML-20M protocol and published comparisons follow this paper. eSASRec itself is SASRec with sampled softmax and a gated Transformer layer (LiGR). Its 8-layer SASRec baseline (HR@10 0.0465 on ML-20M) runs on RecTools' port of the SASRec authors' code; our run of that wiring lands at 0.0446, and our pre-LN block at 0.3196 (CURRICULUM v5).
 - **Rendle, Zhang & Koren, 2019** (1905.01395): "On the Difficulty of Evaluating Baselines." Carefully tuned vanilla MF beats most newly proposed methods. The reason this repo insists on getting implementation details right before claiming improvements.
 
 ## The bridge to HSTU (2022-2024)
 
 - **Li, Wang & McAuley, WSDM 2020** (doi: 10.1145/3336191.3371786): **TiSASRec.** Time Interval Aware Self-Attention for Sequential Recommendation. Models absolute positions and the time intervals between interactions, not just item order. Our v7's temporal bias buckets draw from this idea.
 - **Pancha et al., KDD 2022** (2205.04507): **PinnerFormer.** Pinterest's industrial SASRec-style model. Introduces "Dense All Action" loss (predict all future actions, not just the next item). Pre-LN residuals, sampled softmax.
-- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling. Our v5 sweep does not see the collapse: with v4's initialization and sampled softmax, plain SASRec keeps improving up to 16 blocks, with diminishing returns.
+- **Guo, Wang et al., arXiv 2024** (2412.00714): "Scaling New Frontiers." Compares HSTU, Llama, GPT, and SASRec by varying depth. Table 8 shows SASRec collapses at 4+ blocks on ML-20M. Llama-style residuals + relative attention bias restore scaling. Our v5 sweep does not see the collapse with pre-LN blocks: plain SASRec keeps improving up to 16 blocks, with diminishing returns. With the SASRec authors' released wiring, it collapses from 8 blocks and ties at 4 (CURRICULUM v5). They describe their SASRec as applying the residual "after layer normalization", which matches the authors' code. They train with BCE and 1 negative, which we haven't tried, so we can't say whether that explains their collapse at 4.
 - **Zhai et al., ICML 2024** (2402.17152): **HSTU / Generative Recommenders.** "Actions Speak Louder than Words." Replaces softmax attention with SiLU, adds relative attention bias (position + timestamp), adds U(X) gating. M-FALCON inference. Trillion-parameter scale with power-law scaling. The north star.
 
 ## HSTU extensions and related architectures

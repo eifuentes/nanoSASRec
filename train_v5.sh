@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# train_v5.sh - Depth scaling experiment on ML-20M
+# train_v5.sh - Depth scaling and block wiring on ML-20M
 #
-# Runs train_v4.py at 2, 4, 8, and 16 attention blocks to measure
-# depth scaling on the ML-20M benchmark setup used in the README.
+# Runs train_v4.py on the ML-20M benchmark setup used in the README, in one pass:
+#   1. Which wire collapses the SASRec authors' block? 3 epochs each at 8 blocks:
+#      pre-LN, then each of the authors' two changes on its own. The collapse shows
+#      from epoch 1, so 3 epochs are enough, and these finish first (~15 min each).
+#   2. Depth scaling at 2, 4, 8 and 16 blocks, for pre-LN (the default) and for the
+#      authors' block (both wiring flags flipped), 50 epochs each. Shallow runs go
+#      first, so the 2- and 4-block comparisons are done before the long runs start.
+# See CURRICULUM v5 for the results.
 #
 # Usage: bash train_v5.sh [device]
 # Example: bash train_v5.sh mps
@@ -20,23 +26,28 @@ NUM_NEGATIVES=512
 SEED=42
 LOG_DIR="logs/v5"
 
+# The SASRec authors' block flips both of train_v4.py's wiring flags (CURRICULUM v4)
+AUTHORS_CODE=(--attention-block-residual-from normed --attention-block-kv-from input)
+
 mkdir -p "$LOG_DIR"
 
 echo "============================================================="
-echo "  v5: Depth scaling experiment on $DATASET"
+echo "  v5: Depth scaling and block wiring on $DATASET"
 echo "  Device: $DEVICE | Dim: $DIM | Epochs: $EPOCHS | Negatives: $NUM_NEGATIVES | Seed: $SEED"
 echo "============================================================="
 
 # Step 0: Download and preprocess
 echo ""
-echo "[Step 0/5] Preprocessing $DATASET..."
+echo "[Step 0] Preprocessing $DATASET..."
 uv run python -u data.py --dataset "$DATASET"
 
-for BLOCKS in 2 4 8 16; do
-    LOG_FILE="$LOG_DIR/${DATASET}_blocks${BLOCKS}.log"
+# Run train_v4.py once. $1 names the log file; the remaining arguments are extra flags.
+run() {
+    local NAME="$1"; shift
+    local LOG_FILE="$LOG_DIR/${DATASET}_${NAME}.log"
     echo ""
     echo "============================================================"
-    echo "  Training with --blocks $BLOCKS"
+    echo "  Training $NAME: $*"
     echo "  Logging to: $LOG_FILE"
     echo "============================================================"
 
@@ -44,18 +55,29 @@ for BLOCKS in 2 4 8 16; do
         --dataset "$DATASET" \
         --device "$DEVICE" \
         --dim "$DIM" \
-        --blocks "$BLOCKS" \
         --heads "$HEADS" \
         --batch-size "$BATCH_SIZE" \
         --num-negatives "$NUM_NEGATIVES" \
-        --epochs "$EPOCHS" \
-        --eval-every "$EVAL_EVERY" \
         --seed "$SEED" \
+        "$@" \
         2>&1 | tee "$LOG_FILE"
+}
+
+# Step 1: which wire collapses the authors' block. The run directory doesn't depend on
+# --epochs, so these short runs keep their checkpoints apart from the 50-epoch runs below.
+SHORT=(--blocks 8 --epochs 3 --eval-every 3 --checkpoint-dir checkpoints/v5-3-epochs)
+run "pre-ln_blocks8_3-epochs" "${SHORT[@]}"
+run "residual-from-normed_blocks8_3-epochs" "${SHORT[@]}" --attention-block-residual-from normed
+run "kv-from-input_blocks8_3-epochs" "${SHORT[@]}" --attention-block-kv-from input
+
+# Step 2: depth scaling, pre-LN and the authors' block at each depth
+for BLOCKS in 2 4 8 16; do
+    run "blocks${BLOCKS}" --blocks "$BLOCKS" --epochs "$EPOCHS" --eval-every "$EVAL_EVERY"
+    run "authors-code_blocks${BLOCKS}" --blocks "$BLOCKS" --epochs "$EPOCHS" --eval-every "$EVAL_EVERY" "${AUTHORS_CODE[@]}"
 done
 
 echo ""
 echo "========================================================================="
 echo "  Done! Logs saved to $LOG_DIR/"
-echo "  Compare final metrics across block counts to measure depth scaling."
+echo "  Compare final metrics across block counts and wirings."
 echo "========================================================================="

@@ -1,4 +1,4 @@
-"""evaluate.py - evaluation and demo utilities for nanoSASRec v4+"""
+"""evaluate.py - evaluation and demo utilities for nanoSASRec v6+ (train_v4.py has its own copy)"""
 
 import math
 from typing import Dict, List, Optional, Tuple, Union

@@ -1,4 +1,4 @@
-"""checkpoint.py - save and resume v4+ training runs.
+"""checkpoint.py - save and resume v6+ training runs (train_v4.py has its own copy).
 
 Each run keeps its checkpoints in its own directory, named from the training
 arguments that change what the run computes. Re-running the same command

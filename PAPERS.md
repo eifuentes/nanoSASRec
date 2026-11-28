@@ -79,7 +79,7 @@ same core architecture, but via different paths. The work organizes into four la
 
 Terms used below:
 - **DLRM** (Deep Learning Recommendation Model): the production standard before generative recommenders. Embedding tables for sparse features, MLPs, and explicit feature interactions.
-- **M-FALCON**: HSTU's inference algorithm (Microbatched-Fast Attention Leveraging Cacheable OperatioNs). It scores many candidate items in one pass by computing the user's history once and caching it.
+- **M-FALCON**: HSTU's inference algorithm. It scores many candidate items in one pass by computing the user's history once and caching it.
 - **DAU**: daily active users.
 - **RQ-VAE** (residual-quantized variational autoencoder): compresses an item's content embedding into a short tuple of codes. Each code quantizes what the previous codes left unexplained.
 - **Semantic IDs**: item IDs built from those code tuples, so similar items share prefixes. A generative model can then predict an item code by code, like words in a sentence.

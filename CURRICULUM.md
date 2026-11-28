@@ -34,12 +34,12 @@ History, oldest to newest:   A   B   C   D   E   F
                              └─ training ┘   │   └─ test target
                                              └─ validation target
 
-Training     reads A B C       predicts B C D (each position predicts the next item)
+Training     reads A B C       predicts B C D
 Validation   reads A B C D     ranks E against the catalog
 Test         reads A B C D E   ranks F against the catalog
 ```
 
-E is never a training target, but it is part of the history the model reads at test time. Items the user has already seen are left out of the ranking.
+In training, each position predicts the next item. E is never a training target, but it is part of the history the model reads at test time. Items the user has already seen are left out of the ranking.
 
 **Validation metrics (during training):** HR@10 and NDCG@10 on the second-to-last item of each user. v1-v3 rank it against 100 sampled negatives (1 ground truth + 100 random items). That's fast, but the absolute numbers are inflated. An HR@10 of 0.95 sounds amazing until you realize ranking 1 item out of 101 is much easier than ranking 1 out of 26,744. Sampled metrics can also change which of two models looks better (Krichene & Rendle, KDD 2020). So v4+ validate on the full catalog, the same way as test. Validation and test then use the same yardstick. On ML-20M, validation HR@10 still runs 3 to 3.5 points above test, probably because the last item is harder to predict (it is one step further from the training data). The gap is steady across versions, so validation is a trustworthy signal for picking models and checkpoints.
 

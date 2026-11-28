@@ -99,15 +99,15 @@ Published results on the full 26,744-item ML-20M catalog:
 
 | Method | Split | Numbers from | HR@10 | NDCG@10 |
 |--------|-------|--------------|-------|---------|
-| eSASRec (4 blocks) | same as ours | Tikhonovich et al. (2025), their model | 0.3289 | 0.1966 |
-| eSASRec (8 blocks) | same as ours | Tikhonovich et al. (2025), their model | 0.3457 | 0.2107 |
-| HSTU (8 blocks) | same as ours | Tikhonovich et al. (2025), re-running Meta's code | 0.3464 | 0.2040 |
-| FuXi-α (8 blocks) | same as ours | Tikhonovich et al. (2025), re-running the authors' code | 0.3468 | 0.2043 |
-| SASRec | Zhai et al.'s | Zhai et al. (2024), as reported | 0.2889 | 0.1621 |
-| HSTU (4 blocks) | Zhai et al.'s | Zhai et al. (2024), as reported | 0.3273 | 0.1895 |
-| HSTU-large (16 blocks) | Zhai et al.'s | Zhai et al. (2024), as reported | 0.3556 | 0.2098 |
+| eSASRec (4 blocks) | same as ours | eSASRec paper | 0.3289 | 0.1966 |
+| eSASRec (8 blocks) | same as ours | eSASRec paper | 0.3457 | 0.2107 |
+| HSTU (8 blocks) | same as ours | eSASRec paper, re-run | 0.3464 | 0.2040 |
+| FuXi-α (8 blocks) | same as ours | eSASRec paper, re-run | 0.3468 | 0.2043 |
+| SASRec | Zhai et al.'s | HSTU paper | 0.2889 | 0.1621 |
+| HSTU (4 blocks) | Zhai et al.'s | HSTU paper | 0.3273 | 0.1895 |
+| HSTU-large (16 blocks) | Zhai et al.'s | HSTU paper | 0.3556 | 0.2098 |
 
-eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps.
+eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. "Same as ours" means the order-preserving split that `data.py` produces. "Zhai et al.'s" split reorders interactions with tied timestamps. "Re-run" means the eSASRec authors (Tikhonovich et al., 2025) ran that model's original code on our split; the other rows are each paper's own model.
 
 The rows on our split are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s split changes about 25% of the test interactions, so their own rows aren't directly comparable.
 

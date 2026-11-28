@@ -2,7 +2,7 @@
 
 The simplest, most readable implementation of Self-Attentive Sequential Recommendation (SASRec), following the research line that made it the standard baseline and the improvements that eventually led to the Hierarchical Sequential Transduction Unit (HSTU).
 
-The official curriculum is 10 versions (nine training scripts plus the v5 depth sweep) backed by a small shared `sasrec/` package.
+The official curriculum is 10 versions: nine training scripts plus the v5 depth sweep. v1-v4 are single files you can read top to bottom; v6+ share a small `sasrec/` package.
 
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT): every training version is runnable directly, every design decision cites a paper, and every version has a concrete reproduction target.
 
@@ -24,11 +24,7 @@ uv run python data.py --dataset ml-1m
 uv run python train_v1.py --epochs 200 --eval-every 20 --device mps  # or cpu, cuda
 ```
 
-Train v1 on MovieLens 1M in about 8 minutes on a MacBook GPU (`mps`). From there, use the [Versions](#versions) and [Datasets](#datasets) tables to see how the curriculum progresses, then follow [CURRICULUM.md](CURRICULUM.md) for the v1-v10 commands and expected results. The 8-block ML-20M versions take about 3 to 4 hours for 50 epochs on one A10 GPU (the v5 depth sweep runs from 1 to 6 hours per depth).
-
-## What to expect
-
-See [CURRICULUM.md](CURRICULUM.md) for a walkthrough of the 10 official versions with training outputs, benchmark numbers, and detailed analysis of what works, what doesn't, and why.
+Train v1 on MovieLens 1M in about 8 minutes on a MacBook GPU (`mps`). The [Versions](#versions) table below shows how the curriculum progresses, and [CURRICULUM.md](CURRICULUM.md) walks through every version: the command, the output, the numbers, and what works, what doesn't, and why. The 8-block ML-20M versions take about 3 to 4 hours for 50 epochs on one A10 GPU.
 
 ## What it looks like
 
@@ -62,7 +58,8 @@ Terms in the table, in short (CURRICULUM.md explains each one where it's introdu
 - **BCE** (binary cross-entropy): scores each item as its own yes/no question.
 - **Sampled softmax**: the true item competes with a set of random items for probability.
 - **gBCE** (generalized BCE, from gSASRec): BCE with the positive's term reweighted to make up for sampling only a few negatives.
-- **ReZero**: each block's contribution starts at zero and is learned.
+- **Pre-LN**: each sublayer reads `LayerNorm(x)` and adds its output back onto `x`. The SASRec paper specifies it; the authors' released code wires it differently.
+- **ReZero**: a gate on each residual branch, one learned number that starts at zero, so every block starts switched off.
 - **HSTU**: Meta's 2024 recommender block, which replaces softmax attention with SiLU attention and a gate.
 - **φ1**: HSTU's nonlinearity on the projections before attention.
 - **A10**: the 24 GB NVIDIA GPU used for every ML-20M run.
@@ -112,7 +109,10 @@ Published results on the full 26,744-item ML-20M catalog:
 
 eSASRec is SASRec with sampled softmax and a gated Transformer layer (LiGR), from a paper that re-benchmarks sequential recommenders on a shared split. Its numbers come from the [transformer_benchmark](https://github.com/blondered/transformer_benchmark) README. Its HSTU and FuXi-α rows are those models' original code re-run on the same order-preserving split that `data.py` produces.
 
-The eSASRec rows are the closest comparison because they use the same split and the same evaluation: full-catalog ranking with the user's earlier items masked. After 50 epochs, v7 is 0.8 points of HR@10 below eSASRec and the recomputed HSTU at 8 blocks. eSASRec trains for up to 100 epochs, though, and [Training longer](#training-longer) shows v7 draws level with both when given the same budget. Our HSTU versions trail the recomputed HSTU by more: 1.1 points for v9 and 2.3 for v8 at 50 epochs, and 0.4 and 1.5 at 100. Our HSTU also differs from the reference code in small ways: the reference divides the SiLU attention by sequence length, and its φ1 is SiLU on the projection of a layer-normed input rather than SwishLayerNorm. We haven't tested which of these matter. Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+The Tikhonovich et al. rows are the closest comparison: same split, same evaluation (full-catalog ranking with the user's earlier items masked). Zhai et al.'s own rows come from preprocessing that reorders tied timestamps, so about 25% of their test interactions differ from ours.
+
+- **v7 against eSASRec and the recomputed HSTU:** 0.8 points of HR@10 behind after 50 epochs. eSASRec trains for up to 100, and given the same budget v7 draws level ([Training longer](#training-longer)).
+- **Our HSTU against the recomputed HSTU:** further behind, 1.1 points for v9 and 2.3 for v8 at 50 epochs, and 0.4 and 1.5 at 100. Our HSTU still differs from Meta's code in a few ways: Meta divides the SiLU attention by sequence length, normalizes the block input before the projection, and uses a plain residual where we use ReZero. [#30](https://github.com/eifuentes/nanoSASRec/issues/30) tests which ones matter.
 
 ### Training longer
 
@@ -182,7 +182,9 @@ uv run modal run --detach remote.py --cmd "python -u train_v9.py --dataset ml-20
 
 If you plan to fan out several ML-20M jobs with `sweep.sh` or manually, run one Modal job first and let it finish preprocessing. That warms the shared data volume and avoids multiple first-time jobs racing to download and extract the same dataset. If there are issues with dataset processing you may need to wipe the _Modal Volume_.
 
-v4+ scripts save checkpoints so an interrupted run can pick up where it left off:
+### Checkpoints
+
+v4+ scripts save checkpoints so an interrupted run can pick up where it left off, on Modal or anywhere else:
 
 - **Where and when.** Every 5 epochs by default, and after the last epoch, to `checkpoints/<script>-<dataset>-seed<N>-<hash>/`. Pass `--checkpoint-every N` to save every N epochs, or `--checkpoint-every 0` to stop saving them. The hash covers every argument that changes the weights.
 - **Resuming.** After any interruption (a crash, Ctrl-C, a preemption), run the same command again. It restores the model, the optimizer and all random number generators from the latest checkpoint. On Modal, checkpoints live on their own Volume and Modal re-runs the command itself, so a preempted job picks up where it left off.
@@ -200,6 +202,7 @@ This project is not sponsored.
 
 ## Roadmap
 
-- **In-batch negatives**: use positive items from other users in the batch as harder negatives. Worth testing with v10's temperature and L2 norm, though Zhai et al. get their ML-20M results with random negatives.
-- **Production optimization**: KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
-- **Stochastic Length training**: randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).
+- **In-batch negatives** ([#27](https://github.com/eifuentes/nanoSASRec/issues/27)): use positive items from other users in the batch as harder negatives. Worth testing with v10's temperature and L2 norm, though Zhai et al. get their ML-20M results with random negatives.
+- **LiGR gate** ([#42](https://github.com/eifuentes/nanoSASRec/issues/42)): v6's second residual gate, the input-dependent one eSASRec uses.
+- **Production optimization** ([#29](https://github.com/eifuentes/nanoSASRec/issues/29)): KV-cache for incremental inference, FAISS for approximate nearest neighbor retrieval, mixed precision training.
+- **Stochastic Length training** ([#28](https://github.com/eifuentes/nanoSASRec/issues/28)): randomly sample contiguous subsequences during training instead of always using the most recent items. See [PAPERS.md](PAPERS.md).

@@ -4,8 +4,8 @@ Every design decision in this repo traces back to a specific paper. This documen
 
 The story: SASRec replaces RNNs with Transformers, BERT4Rec challenges it and the
 community splits, the loss function is identified as the real problem, papers argue SASRec
-fails to scale with depth, PinnerFormer bridges to production, and HSTU carries the line into
-trillion-parameter scale.
+fails to scale with depth (in this repo, that traces back to the block wiring in its released
+code), PinnerFormer bridges to production, and HSTU carries the line into trillion-parameter scale.
 
 ## Foundation (2016-2018)
 
@@ -34,12 +34,15 @@ underperformance is caused by its loss function, not its architecture.
 - **Huang, arXiv 2025** (2504.09596): "Revisiting Self-Attentive Sequential Recommendation." Positional embedding alignment (steps-back-from-prediction), padding embedding must be frozen at zero, advocacy for native PyTorch attention primitives.
 - **D'Ercoli et al., arXiv 2025** (2506.14692): Replicability study of BSARec vs SASRec on a common codebase (EasyRec). Documents that normalization order, dropout placement, and initialization cause 2-5% metric swings.
 - **Xiong et al., ICML 2020** (2002.04745): "On Layer Normalization in the Transformer Architecture." The general Pre-LN vs Post-LN analysis.
-- **pmixer Result_Norm.md, May 2025**: Pre-LN vs Post-LN empirical results specifically for SASRec. Pre-LN wins on 3/4 datasets.
+- **pmixer/SASRec.pytorch, May 2025** ([#47](https://github.com/pmixer/SASRec.pytorch/issues/47), [results](https://github.com/Tiny-Snow/SASRec.pytorch/blob/main/Result_Norm.md)): Points out that SASRec's released code doesn't match the paper's pre-LN formula, and compares the original wiring with standard pre-LN and post-LN at 2 and 3 blocks, where the differences are small.
 
 ## Depth scaling and residual stabilization (2020-2023)
 
 - **Bachlechner et al., arXiv 2020** (2003.04887): **ReZero.** Learnable residual scaling initialized to zero. Each block starts as identity and gradually turns on. Our v6 uses this to make 8 blocks match 16 blocks without it.
-- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers. (Our v5 sweep doesn't reproduce this; see Guo et al. below.)
+- **De & Smith, NeurIPS 2020** (2002.10444): SkipInit. The same idea for ResNets: a scalar on each residual branch that starts at zero.
+- **Touvron et al., ICCV 2021** (2103.17239): CaiT's LayerScale. One learned scale per channel on each residual branch, starting small rather than at zero.
+- **LinkedIn, arXiv 2025** (2502.03417): "From Features to Transformers." Its LiGR layer gates the residual branch with `σ(W·x)`, computed from the input. eSASRec uses it; our v6 accepts `--residual-gate ligr` but doesn't implement it yet ([#42](https://github.com/eifuentes/nanoSASRec/issues/42)).
+- **Peng et al., 2022** (2209.07997): RAM (Recursive Attentive Methods). Identifies the "localization-deficit": attention distributions approach uniformity in early blocks, item representations diverge from originals. SASRec's optimal depth is stuck at 2 layers. (Our pre-LN v5 sweep keeps improving to 16 blocks; see Guo et al. below.)
 - **Peng et al., TKDD 2023** (2311.07742): "Modeling Sequences as Star Graphs to Address Over-smoothing." Cosine similarity among sequence elements rises from 0.5 to 0.8 from block 1 to block 6. Formalizes why deeper SASRec doesn't improve.
 
 ## Evaluation methodology

@@ -1,4 +1,4 @@
-"""dataset.py - data loading and batch sampling for nanoSASRec v4+"""
+"""dataset.py - data loading and batch sampling for nanoSASRec v6+ (train_v4.py has its own copy)"""
 
 import json
 import os

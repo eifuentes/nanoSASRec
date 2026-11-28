@@ -1,10 +1,13 @@
 """
-train_v6.py - SASRec + ReZero residual scaling for depth
+train_v6.py - SASRec + gated residuals (ReZero) for depth
 
-Adds learnable residual scaling (ReZero) to make deeper models worthwhile.
+Adds a gate on each residual branch to make deeper models worthwhile.
 v5 showed depth helps, with diminishing returns.
-ReZero initializes each block as identity, letting the model learn
-how much each block should contribute to the residual stream.
+The gate implemented so far is ReZero: one learned scalar per sublayer that starts at 0,
+so each block starts as identity and the model learns how much each block should
+contribute to the residual stream. --residual-gate picks the gate (CURRICULUM v6).
+
+v6 is the first version to import the shared sasrec/ package; v1-v4 are single files.
 
 Run: `uv run python train_v6.py --device cuda`
 
@@ -49,10 +52,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=8, help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads")
     parser.add_argument(
-        "--scale-res",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="ReZero residual scaling (disable with --no-scale-res)",
+        "--residual-gate",
+        type=str,
+        default="rezero",
+        choices=["none", "rezero", "ligr"],
+        help="What scales each sublayer's output before the residual add (CURRICULUM v6). none: plain pre-LN as "
+        "in v5. rezero: one learned scalar per sublayer, starting at 0. ligr: not implemented yet (issue #42)",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for optimizer during training")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs for training")
@@ -101,7 +106,7 @@ def main():
         num_heads=args.heads,
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
-        scale_residual=args.scale_res,
+        residual_gate=args.residual_gate,
     )
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,}")

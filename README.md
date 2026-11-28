@@ -50,7 +50,7 @@ Model top-3:
 | `train_v3.py` | gBCE loss + calibration | ML-1M | Calibration needs 2× the epochs; sampled softmax still ranks better |
 | `train_v4.py` | Init, reversed positions, dropout | ML-1M | Implementation details compound to +12% NDCG (sampled eval) |
 | `train_v5.sh` | Depth sweep (2/4/8/16 blocks) | ML-20M | Depth pays off with pre-LN blocks, with diminishing returns; the SASRec authors' wiring collapses from 8 blocks |
-| `train_v6.py` | ReZero residual scaling | ML-20M | 8 blocks + ReZero matches 16 blocks without |
+| `train_v6.py` | Gated residuals (ReZero) | ML-20M | 8 blocks + ReZero matches 16 blocks without |
 | `train_v7.py` | Relative position + temporal bias | ML-20M | Best model in repo |
 | `train_v8.py` | SiLU + gating (HSTU) | ML-20M | Architecture swap is not a clear win at this scale |
 | `train_v9.py` | φ1 SwishLayerNorm pre-activation | ML-20M | Recovers most of v8's gap to v7 |

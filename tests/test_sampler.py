@@ -1,4 +1,4 @@
-"""Tests for how v4+ build a training batch."""
+"""Tests for how v6+ build a training batch. train_v4.py has the same sampler without timestamps."""
 
 import numpy as np
 

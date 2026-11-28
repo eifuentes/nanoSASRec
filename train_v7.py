@@ -58,10 +58,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=8, help="Number of attention blocks")
     parser.add_argument("--heads", type=int, default=8, help="Number of attention heads")
     parser.add_argument(
-        "--scale-res",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="ReZero residual scaling (disable with --no-scale-res)",
+        "--residual-gate",
+        type=str,
+        default="rezero",
+        choices=["none", "rezero", "ligr"],
+        help="What scales each sublayer's output before the residual add (CURRICULUM v6). none: plain pre-LN as "
+        "in v5. rezero: one learned scalar per sublayer, starting at 0. ligr: not implemented yet (issue #42)",
     )
     parser.add_argument(
         "--rel-bias",
@@ -129,7 +131,7 @@ def main():
         num_heads=args.heads,
         ffn_dim=args.ffn_dim,
         ffn_activation=args.ffn_activation,
-        scale_residual=args.scale_res,
+        residual_gate=args.residual_gate,
         relative_bias=args.rel_bias,
     )
     num_params = sum(p.numel() for p in model.parameters())

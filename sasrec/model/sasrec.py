@@ -1,14 +1,15 @@
 """
-sasrec.py - SASRec model architecture for nanoSASRec v4+
+sasrec.py - SASRec model architecture for nanoSASRec v6+
 
-Shared model components used by train_v4.py and later versions.
+Shared model components used by train_v6.py and later versions. train_v4.py has its own
+copy of the v4 parts, so it stays a single file like v1-v3.
 Architecture is identical to v1-v3 with these refinements:
     - Weight init: truncated normal with std=1/sqrt(d) (Zhai et al. (2024))
     - Reversed positional embeddings (Huang 2025, arxiv: 2504.09596)
     - Causal mask as registered buffer (created once, not per forward pass)
     - Configurable feed-forward network hidden dim and activation function
     - Attention weight dropout (standard in Transformer implementations, e.g. tensor2tensor)
-    - Residual scaling via ReZero (Bachlechner et al. 2020) for stable depth scaling
+    - Residual gates, ReZero (Bachlechner et al. 2020) so far, for stable depth scaling (v6)
     - Relative position bias (Raffel et al. 2020, Zhai et al. 2024) with log-bucketed distances
 """
 
@@ -155,21 +156,13 @@ class SelfAttention(nn.Module):
         # add attention dropout
         self.attn_dropout = nn.Dropout(p=dropout_rate)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor,
-        bias: Optional[torch.Tensor] = None,
-        kv: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Scaled Dot-Product Self-Attention.
 
         Args:
             x (torch.Tensor): input tensor of size(batch_size, seq_len, embedding_dim)
             mask (torch.Tensor): mask to preserve causal nature of attention scores
             bias (torch.Tensor, optional): relative bias of size(1, num_heads, seq_len, seq_len)
-            kv (torch.Tensor, optional): input for keys and values if it differs from the queries' input x
-                (the original SASRec block normalizes only the queries). Defaults to x.
 
         Returns:
             torch.Tensor: attended input tensor of size(batch_size, seq_len, embedding_dim)
@@ -190,8 +183,7 @@ class SelfAttention(nn.Module):
         )  # (batch_size, num_heads, seq_len, head_dim)
 
         # key linear layer transforms each position into "this is what I advertise about myself so queries can find me?"
-        kv = x if kv is None else kv
-        key = self.key_proj(kv)  # (batch_size, seq_len, embedding_dim)
+        key = self.key_proj(x)  # (batch_size, seq_len, embedding_dim)
         key = key.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
@@ -199,7 +191,7 @@ class SelfAttention(nn.Module):
         key = key.transpose(-2, -1)  # (batch_size, num_heads, head_dim, seq_len)
 
         # value linear layer transforms each position into "this is the information I pass along when attended to?"
-        value = self.value_proj(kv)  # (batch_size, seq_len, embedding_dim)
+        value = self.value_proj(x)  # (batch_size, seq_len, embedding_dim)
         value = value.view(batch_size, seq_len, self.num_heads, head_dim).transpose(
             1, 2
         )  # (batch_size, num_heads, seq_len, head_dim)
@@ -253,34 +245,29 @@ class AttentionBlock(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
-        scale_residual: bool = False,
-        block_style: Literal["pre-ln", "original", "ln-residual", "raw-kv"] = "pre-ln",
+        residual_gate: Literal["none", "rezero", "ligr"] = "none",
     ):
 
         super().__init__()
 
-        # How the block is wired (CURRICULUM v4-v6, issue #32):
-        # "pre-ln" is the standard pre-LayerNorm block, x + sublayer(LayerNorm(x)). It is also the
-        #   formula in the SASRec paper (Kang & McAuley 2018, Section III-C).
-        # "original" is the block in the SASRec authors' released code (kang205/SASRec, and RecTools'
-        #   port that eSASRec benchmarks). It differs from the paper in two places: the residual
-        #   starts from LayerNorm(x) instead of x, and only the attention queries are normalized,
-        #   not the keys and values. Everything else (dropout, init) is the same.
-        # "ln-residual" and "raw-kv" each make only one of those two changes, to tell them apart.
-        # On ML-20M, "original" collapses at 8+ blocks, and so does each single change (CURRICULUM v5).
-        self.block_style = block_style
-        self.residual_from_norm = block_style in ("original", "ln-residual")
-        self.raw_kv = block_style in ("original", "raw-kv")
+        # Residual gate (CURRICULUM v6): what multiplies each sublayer's output before it is
+        # added back onto the residual stream x.
+        #   "none":   x + F(LayerNorm(x)), the plain pre-LN block of v4 and v5.
+        #   "rezero": x + alpha * F(LayerNorm(x)), one learned scalar per sublayer that starts at 0
+        #             (ReZero, Bachlechner et al. 2020), so every block starts as a pass-through.
+        #   "ligr":   x + sigmoid(W x) * F(LayerNorm(x)), a gate per feature and position computed
+        #             from x (LiGR, arXiv 2502.03417, used by eSASRec). Not implemented yet, see issue #42.
+        if residual_gate == "ligr":
+            raise NotImplementedError("The LiGR residual gate is not implemented yet, see issue #42")
+        self.residual_gate = residual_gate
 
         # determine feed-forward network arguments
         ffn_hidden_dim = ffn_dim or embedding_dim
         ffn_activation_module = nn.GELU() if ffn_activation == "gelu" else nn.ReLU()
 
         # setup learnable parameters
-        self.scale_residual = scale_residual
-        # See for detail - ReZero (Bachlechner et al. 2020)
-        if self.scale_residual:
-            # one learnable scaler per residual connection
+        if self.residual_gate == "rezero":
+            # one learnable scalar per residual connection
             self.residual_scalar_attn = nn.Parameter(torch.zeros(1))
             self.residual_scalar_ffn = nn.Parameter(torch.zeros(1))
 
@@ -300,29 +287,28 @@ class AttentionBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         # forward attention (with relative position and/or temporal bias if provided)
-        normed = self.norm_attn(x)
-        # queries always read LayerNorm(x); "original" and "raw-kv" take keys and values from the raw x
-        y = self.attn(normed, mask=mask, bias=bias, kv=x if self.raw_kv else None)
+        y = self.norm_attn(x)
+        if bias is not None:
+            y = self.attn(y, mask=mask, bias=bias)
+        else:
+            y = self.attn(y, mask=mask)
         # apply attention dropout
         y = self.dropout_attn(y)
-        # residual connection: add the input back so gradients can flow without going through attention.
-        # pre-LN adds back x itself, so the residual stream is never normalized inside the stack.
-        # "original" and "ln-residual" add back LayerNorm(x), so the stream is re-normalized at every block.
-        residual = normed if self.residual_from_norm else x
-        if self.scale_residual:
-            x = residual + (self.residual_scalar_attn * y)
+        # residual connection: add original input back so gradients
+        # can flow without having to go through attention
+        if self.residual_gate == "rezero":
+            x = x + (self.residual_scalar_attn * y)
         else:
-            x = residual + y
+            x = x + y
         # forward feed forward network with norm and dropout
-        normed = self.norm_ffn(x)
-        y = self.ffn(normed)
+        y = self.norm_ffn(x)
+        y = self.ffn(y)
         y = self.dropout_ffn(y)
         # residual connections
-        residual = normed if self.residual_from_norm else x
-        if self.scale_residual:
-            x = residual + (self.residual_scalar_ffn * y)
+        if self.residual_gate == "rezero":
+            x = x + (self.residual_scalar_ffn * y)
         else:
-            x = residual + y
+            x = x + y
         return x
 
 
@@ -337,10 +323,9 @@ class SASRec(nn.Module):
         num_heads: int = 1,
         ffn_dim: Optional[int] = None,
         ffn_activation: Literal["relu", "gelu"] = "relu",
-        scale_residual: bool = False,
+        residual_gate: Literal["none", "rezero", "ligr"] = "none",
         relative_bias: bool = False,
         num_relative_bias_buckets: int = NUM_BIAS_BUCKETS,
-        block_style: Literal["pre-ln", "original", "ln-residual", "raw-kv"] = "pre-ln",
     ):
 
         super().__init__()
@@ -379,8 +364,7 @@ class SASRec(nn.Module):
                     num_heads=num_heads,
                     ffn_dim=ffn_dim,
                     ffn_activation=ffn_activation,
-                    scale_residual=scale_residual,
-                    block_style=block_style,
+                    residual_gate=residual_gate,
                 )
                 for _ in range(num_blocks)
             ]
